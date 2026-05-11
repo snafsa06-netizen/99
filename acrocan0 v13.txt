@@ -1,0 +1,2450 @@
+local lp = game:GetService("Players").LocalPlayer
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local Lighting = game:GetService("Lighting")
+local Marketplace = game:GetService("MarketplaceService")
+local UserInputService = game:GetService("UserInputService")
+
+local pgui = lp:WaitForChild("PlayerGui")
+
+-- ==========================================
+-- [[ Game ID Check Logic ]]
+-- ==========================================
+local isMainGame = false
+
+-- ==========================================
+-- [[ نظام التحقق من الأدمن (الرسوم) ]]
+-- ==========================================
+local isAdmin = (lp.Name == "sna7799")
+
+-- ==========================================
+-- [[ ACROCAN0 KEY SYSTEM (نظام المفتاح 24 ساعة) ]]
+-- ==========================================
+local KeyLink = "https://link-target.net/4922990/vGYpnPfgaUjG"
+local RequiredKey = "sdooa"
+
+local keySaveFile = "acrocan0_key_save_" .. tostring(lp.Name) .. ".txt"
+local isKeyVerified = isAdmin
+local KeyDuration = 86400
+local KeyExpirationTime = 0
+
+if not isKeyVerified then
+    pcall(function()
+        if readfile and isfile and isfile(keySaveFile) then
+            local savedTime = tonumber(readfile(keySaveFile))
+            if savedTime and (os.time() - savedTime) <= KeyDuration then
+                isKeyVerified = true
+                KeyExpirationTime = savedTime + KeyDuration
+            end
+        end
+    end)
+end
+
+if not isKeyVerified then
+    local KeyScreen = Instance.new("ScreenGui", pgui)
+    KeyScreen.Name = "AcroKeySystem"
+    KeyScreen.IgnoreGuiInset = true
+    KeyScreen.ResetOnSpawn = false
+
+    local KeyMain = Instance.new("Frame", KeyScreen)
+    KeyMain.Size = UDim2.new(0, 350, 0, 180)
+    KeyMain.Position = UDim2.new(0.5, -175, 0.5, -90)
+    KeyMain.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    Instance.new("UICorner", KeyMain)
+    local KeyStroke = Instance.new("UIStroke", KeyMain)
+    KeyStroke.Thickness = 2
+    KeyStroke.Color = Color3.fromRGB(150, 0, 0)
+
+    local KeyTitle = Instance.new("TextLabel", KeyMain)
+    KeyTitle.Size = UDim2.new(1, 0, 0, 40)
+    KeyTitle.Text = "ACROCAN0 HUB - KEY SYSTEM"
+    KeyTitle.TextColor3 = Color3.fromRGB(150, 0, 0)
+    KeyTitle.Font = "GothamBold"
+    KeyTitle.TextSize = 16
+    KeyTitle.BackgroundTransparency = 1
+
+    local KeyBox = Instance.new("TextBox", KeyMain)
+    KeyBox.Size = UDim2.new(0.8, 0, 0, 35)
+    KeyBox.Position = UDim2.new(0.1, 0, 0.35, 0)
+    KeyBox.PlaceholderText = "Enter your unique key here..."
+    KeyBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    KeyBox.TextColor3 = Color3.new(1, 1, 1)
+    KeyBox.Font = "GothamBold"
+    Instance.new("UICorner", KeyBox)
+
+    local GetKeyBtn = Instance.new("TextButton", KeyMain)
+    GetKeyBtn.Size = UDim2.new(0.35, 0, 0, 35)
+    GetKeyBtn.Position = UDim2.new(0.1, 0, 0.65, 0)
+    GetKeyBtn.Text = "Copy Key Link"
+    GetKeyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    GetKeyBtn.TextColor3 = Color3.new(1, 1, 1)
+    GetKeyBtn.Font = "GothamBold"
+    Instance.new("UICorner", GetKeyBtn)
+
+    local VerifyBtn = Instance.new("TextButton", KeyMain)
+    VerifyBtn.Size = UDim2.new(0.35, 0, 0, 35)
+    VerifyBtn.Position = UDim2.new(0.55, 0, 0.65, 0)
+    VerifyBtn.Text = "Verify"
+    VerifyBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+    VerifyBtn.TextColor3 = Color3.new(1, 1, 1)
+    VerifyBtn.Font = "GothamBold"
+    Instance.new("UICorner", VerifyBtn)
+
+    GetKeyBtn.MouseButton1Click:Connect(function()
+        if setclipboard then setclipboard(KeyLink) end
+        KeyBox.PlaceholderText = "Link Copied! Paste in Browser."
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Key Info",
+            Text = "تم نسخ الرابط! اذهب للموقع لمعرفة الكلمة السرية وتكملة مفتاحك.",
+            Duration = 10
+        })
+    end)
+
+    VerifyBtn.MouseButton1Click:Connect(function()
+        if KeyBox.Text == RequiredKey then
+            local currentTime = os.time()
+            pcall(function()
+                if writefile then writefile(keySaveFile, tostring(currentTime)) end
+            end)
+            KeyExpirationTime = currentTime + KeyDuration
+            KeyScreen:Destroy()
+            isKeyVerified = true
+        else
+            KeyBox.Text = ""
+            KeyBox.PlaceholderText = "WRONG KEY! Try Again."
+        end
+    end)
+
+    repeat task.wait() until isKeyVerified
+end
+
+-- ==========================================
+-- [[ Executor Security Check ]]
+-- ==========================================
+local execName = "Unknown"
+pcall(function()
+    if type(identifyexecutor) == "function" then execName = tostring(identifyexecutor())
+    elseif type(getexecutorname) == "function" then execName = tostring(getexecutorname()) end
+end)
+
+if not string.find(string.lower(execName), "codex") then
+    task.spawn(function()
+        task.wait(7)
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "⚠️ SECURITY WARNING",
+                Text = "High ban risk detected! Using this executor will likely get you banned shortly. You MUST use Codex, it is completely safe.",
+                Duration = 20
+            })
+        end)
+    end)
+end
+
+-- ==========================================
+-- [[ Game Selection Prompt (Combat Warriors Check) ]]
+-- ==========================================
+local GameSelectionDone = false
+
+local CheckScreen = Instance.new("ScreenGui", pgui)
+CheckScreen.Name = "AcroGameCheck"
+CheckScreen.IgnoreGuiInset = true
+CheckScreen.ResetOnSpawn = false
+
+local CheckMain = Instance.new("Frame", CheckScreen)
+CheckMain.Size = UDim2.new(0, 350, 0, 160)
+CheckMain.Position = UDim2.new(0.5, -175, 0.5, -80)
+CheckMain.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Instance.new("UICorner", CheckMain)
+local CheckStroke = Instance.new("UIStroke", CheckMain)
+CheckStroke.Thickness = 2
+CheckStroke.Color = Color3.fromRGB(150, 0, 0)
+
+local CheckTitle = Instance.new("TextLabel", CheckMain)
+CheckTitle.Size = UDim2.new(1, 0, 0, 40)
+CheckTitle.Text = "ACROCAN0 HUB"
+CheckTitle.TextColor3 = Color3.fromRGB(150, 0, 0)
+CheckTitle.Font = "GothamBold"
+CheckTitle.TextSize = 18
+CheckTitle.BackgroundTransparency = 1
+
+local CheckQuestion = Instance.new("TextLabel", CheckMain)
+CheckQuestion.Size = UDim2.new(1, 0, 0, 40)
+CheckQuestion.Position = UDim2.new(0, 0, 0.35, 0)
+CheckQuestion.Text = "Are you in combat warriors?"
+CheckQuestion.TextColor3 = Color3.new(1, 1, 1)
+CheckQuestion.Font = "GothamBold"
+CheckQuestion.TextSize = 14
+CheckQuestion.BackgroundTransparency = 1
+
+local YesBtn = Instance.new("TextButton", CheckMain)
+YesBtn.Size = UDim2.new(0.35, 0, 0, 35)
+YesBtn.Position = UDim2.new(0.1, 0, 0.7, 0)
+YesBtn.Text = "Yes"
+YesBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+YesBtn.TextColor3 = Color3.new(1, 1, 1)
+YesBtn.Font = "GothamBold"
+Instance.new("UICorner", YesBtn)
+
+local NoBtn = Instance.new("TextButton", CheckMain)
+NoBtn.Size = UDim2.new(0.35, 0, 0, 35)
+NoBtn.Position = UDim2.new(0.55, 0, 0.7, 0)
+NoBtn.Text = "No"
+NoBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+NoBtn.TextColor3 = Color3.new(1, 1, 1)
+NoBtn.Font = "GothamBold"
+Instance.new("UICorner", NoBtn)
+
+YesBtn.MouseButton1Click:Connect(function()
+    isMainGame = true
+    CheckScreen:Destroy()
+    GameSelectionDone = true
+end)
+
+NoBtn.MouseButton1Click:Connect(function()
+    isMainGame = false
+    CheckScreen:Destroy()
+    GameSelectionDone = true
+end)
+
+repeat task.wait() until GameSelectionDone
+
+-- ==========================================
+-- [[ نظام البلاك ليست (الحظر) ]]
+-- ==========================================
+local BannedUsers = {"BadPlayer123", "AnotherHater00"}
+for _, user in ipairs(BannedUsers) do
+    if lp.Name == user then lp:Kick("You are BANNED from using acrocan0 HUB by Admin."); return end
+end
+
+if pgui:FindFirstChild("AcroLangHub") then pgui.AcroLangHub:Destroy() end
+if pgui:FindFirstChild("Gray_Movement") then pgui.Gray_Movement:Destroy() end
+if Lighting:FindFirstChild("AcroBlur") then Lighting.AcroBlur:Destroy() end
+if workspace:FindFirstChild("AcroOrbFolder") then workspace.AcroOrbFolder:Destroy() end
+for _, v in pairs(workspace:GetChildren()) do if v.Name == "AcroOrb" then v:Destroy() end end
+if pgui:FindFirstChild("AcroCustomCrosshair") then pgui.AcroCustomCrosshair:Destroy() end
+if pgui:FindFirstChild("AcroCrosshairEditor") then pgui.AcroCrosshairEditor:Destroy() end
+if pgui:FindFirstChild("AcroJoystickEditor") then pgui.AcroJoystickEditor:Destroy() end
+
+-- ==========================================
+-- [[ Global Settings ]]
+-- ==========================================
+local _G_settings = { 
+    Enabled = true, WallCheck = true, FOV = 150, MaxDist = 30, 
+    UsePrediction = true, Prediction = 0.05, AutoPred = true, 
+    AutoPredBase = 0.1, DistThreshold = 20, CloseMult = 0.005, FarMult = 0.001, VerticalStrength = 0.5,
+    Smoothness = 0, HideFOV = true, FPSUnlocked = false, NoEffects = false, ShowFPSCounter = false, LowHealthFocus = true, IgnoredPlayers = {},
+    CustomCrosshair = true, TargetPart = "Head", CrosshairOffsetY = 0,
+    AutoParry = false, AntiParry = false,
+    CustomJoystick = false, JoySize = 140, JoyPosX = 20, JoyPosY = -70,
+    AutoParryDist = 18, AntiParryDist = 15,
+    HitboxEnabled = false, HitboxSize = 7,
+    SpeedBoost = false, JumpBoost = false,
+    KunaiDodge = false,
+    ESP_Enabled = false, ESP_Boxes = false, ESP_Tracers = false, ESP_Arrows = false,
+    AutoFastRespawn = false,
+    RightClickAim = false,
+    AimAtBots = false,
+    ESP_OnBots = false,
+    CheckTheBot = false,
+    AntiBearTrap = false,
+    AntiGrenade = false,
+    AntiMolotov = false,
+    AntiC4 = false,
+}
+
+local Acrocan0_Hardcoded_Settings = table.clone(_G_settings)
+Acrocan0_Hardcoded_Settings.FPSUnlocked = true
+
+-- ==========================================
+-- [[ Live Targets Scanner (Players + Bots) - OPTIMIZED ]]
+-- ==========================================
+local LiveTargets = {}
+
+task.spawn(function()
+    while task.wait(3) do
+        local newTargets = {}
+        
+        for _, p in ipairs(game.Players:GetPlayers()) do
+            if p ~= lp and p.Character and p.Character:FindFirstChild("Humanoid") then
+                table.insert(newTargets, {model = p.Character, isBot = false, name = p.Name, health = p.Character.Humanoid.Health})
+            end
+        end
+        
+        if not isMainGame and (_G_settings.AimAtBots or _G_settings.ESP_OnBots) then
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if obj == lp.Character then continue end
+                
+                if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+                    if obj.Humanoid.Health > 0 and not game.Players:GetPlayerFromCharacter(obj) then
+                        table.insert(newTargets, {model = obj, isBot = true, name = obj.Name, health = obj.Humanoid.Health})
+                    end
+                elseif obj:IsA("Folder") or obj:IsA("Model") then
+                    for _, child in ipairs(obj:GetChildren()) do
+                        if child:IsA("Model") and child:FindFirstChild("Humanoid") and child:FindFirstChild("HumanoidRootPart") then
+                            if child.Humanoid.Health > 0 and not game.Players:GetPlayerFromCharacter(child) then
+                                table.insert(newTargets, {model = child, isBot = true, name = child.Name, health = child.Humanoid.Health})
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        LiveTargets = newTargets
+    end
+end)
+
+-- ==========================================
+-- [[ 1. نظام الجويستيك المطور (Red Movement) ]]
+-- ==========================================
+local GrayGui = nil
+local activeTouch = nil
+local moveDir = Vector3.new(0,0,0)
+local Controls = nil
+
+local function SetMoveVector(vec)
+    pcall(function()
+        if not Controls then Controls = require(lp:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")):GetControls() end
+        local activeController = Controls:GetActiveController()
+        if activeController then activeController.moveVector = vec end
+    end)
+end
+
+local function ApplyJoystickSettings()
+    if GrayGui and GrayGui:FindFirstChild("TouchBlocker") then
+        local main = GrayGui.TouchBlocker.MainFrame
+        main.Size = UDim2.new(0, _G_settings.JoySize, 0, _G_settings.JoySize)
+        main.Position = UDim2.new(0, _G_settings.JoyPosX, 0.5, _G_settings.JoyPosY)
+        local stick = main.Stick
+        local half = _G_settings.JoySize / 2
+        stick.Size = UDim2.new(0, half, 0, half)
+        if not activeTouch then
+            stick.Position = UDim2.new(0.5, -half/2, 0.5, -half/2)
+        end
+    end
+end
+
+local function stopMoving()
+    activeTouch = nil
+    moveDir = Vector3.new(0,0,0)
+    if GrayGui and GrayGui:FindFirstChild("TouchBlocker") then
+        local stick = GrayGui.TouchBlocker.MainFrame.Stick
+        local half = _G_settings.JoySize / 2
+        stick:TweenPosition(UDim2.new(0.5, -half/2, 0.5, -half/2), "Out", "Back", 0.1)
+    end
+    SetMoveVector(Vector3.new(0, 0, 0))
+end
+
+local function setupGrayJoy()
+    local sg = Instance.new("ScreenGui", pgui)
+    sg.Name = "Gray_Movement"
+    sg.DisplayOrder = -100
+    sg.Enabled = false
+    sg.ResetOnSpawn = false 
+    
+    local touchBlocker = Instance.new("Frame", sg)
+    touchBlocker.Name = "TouchBlocker"
+    touchBlocker.Size = UDim2.new(0, 400, 0, 180)
+    touchBlocker.Position = UDim2.new(0, 10, 1, -200)
+    touchBlocker.BackgroundTransparency = 1
+    touchBlocker.ZIndex = -10
+    touchBlocker.Active = true 
+    
+    local main = Instance.new("Frame", touchBlocker)
+    main.Name = "MainFrame"
+    main.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    main.BackgroundTransparency = 0.85
+    main.ZIndex = -9
+    main.Active = true 
+    Instance.new("UICorner", main).CornerRadius = UDim.new(1, 0)
+    local mainStroke = Instance.new("UIStroke", main)
+    mainStroke.Color = Color3.fromRGB(150, 0, 0)
+    
+    local stick = Instance.new("Frame", main)
+    stick.Name = "Stick"
+    stick.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+    stick.BackgroundTransparency = 0.6
+    stick.ZIndex = -8
+    Instance.new("UICorner", stick).CornerRadius = UDim.new(1, 0)
+
+    GrayGui = sg
+    ApplyJoystickSettings()
+
+    main.InputBegan:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+            activeTouch = input
+            local center = main.AbsolutePosition + (main.AbsoluteSize / 2)
+            local diff = Vector2.new(input.Position.X - center.X, input.Position.Y - center.Y)
+            local limit = main.AbsoluteSize.X / 2
+            local dist = math.min(diff.Magnitude, limit)
+            if dist > 0.05 then
+                local dir = diff.Unit
+                SetMoveVector(Vector3.new(dir.X * (dist/limit), 0, dir.Y * (dist/limit)))
+            end
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == activeTouch and sg.Enabled then
+            local center = main.AbsolutePosition + (main.AbsoluteSize / 2)
+            local diff = Vector2.new(input.Position.X - center.X, input.Position.Y - center.Y)
+            local limit = main.AbsoluteSize.X / 2
+            local dist = math.min(diff.Magnitude, limit)
+            local dir = diff.Unit
+            local half = _G_settings.JoySize / 2
+            stick.Position = UDim2.new(0.5, (dir.X * dist) - half/2, 0.5, (dir.Y * dist) - half/2)
+            if dist > 0.05 then SetMoveVector(Vector3.new(dir.X * (dist/limit), 0, dir.Y * (dist/limit))) else SetMoveVector(Vector3.new(0, 0, 0)) end
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input) if input == activeTouch then stopMoving() end end)
+    UserInputService.WindowFocusReleased:Connect(stopMoving)
+    return sg
+end
+
+local function UpdateGrayMovementState()
+    local shouldBeActive = _G_settings.CustomJoystick
+    local touchGui = pgui:FindFirstChild("TouchGui")
+    local function toggleDefaultThumbstick(visible)
+        if touchGui then
+            local frame = touchGui:FindFirstChild("TouchControlFrame")
+            if frame then
+                for _, v in pairs(frame:GetChildren()) do
+                    if string.find(v.Name, "Thumbstick") then
+                        for _, desc in pairs(v:GetDescendants()) do if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then desc.ImageTransparency = visible and 0 or 1 end end
+                        v.BackgroundTransparency = 1
+                    end
+                end
+            end
+        end
+    end
+    if shouldBeActive then
+        toggleDefaultThumbstick(false)
+        if not GrayGui then GrayGui = setupGrayJoy() end
+        GrayGui.Enabled = true
+        ApplyJoystickSettings()
+    else
+        toggleDefaultThumbstick(true)
+        if GrayGui and GrayGui.Enabled then GrayGui.Enabled = false; stopMoving() end
+    end
+end
+
+-- ==========================================
+-- [[ Parry Systems Engine (Auto & Anti) ]]
+-- ==========================================
+local isParrying = false
+local parryCooldown = false
+
+if isMainGame then
+    local animationCache = {}
+    local AnimKeywords = {'Slash', 'Swing', 'Sword', 'Hit', 'Punch', 'Combo', 'Light', 'Heavy'}
+    local DefenseNames = {'Block', 'Parry', 'Guard', 'Defend'}
+
+    local function getAnimInfoCache(id)
+        if animationCache[id] then return animationCache[id] end
+        local success, info = pcall(function() return Marketplace:GetProductInfo(id) end)
+        if success and info then animationCache[id] = info.Name; return info.Name end
+        return ""
+    end
+
+    local function performParry()
+        if isParrying or parryCooldown then return end 
+        isParrying = true
+        parryCooldown = true
+        task.wait(0.01) 
+        if keypress then keypress(0x46); task.wait(0.01); keyrelease(0x46) end 
+        task.wait(0.05); isParrying = false; parryCooldown = false 
+    end
+
+    local function setupParrySystems(v)
+        local function connectCharacter(char)
+            local humanoid = char:WaitForChild("Humanoid", 10)
+            if not humanoid then return end
+            humanoid.AnimationPlayed:Connect(function(track)
+                if (not _G_settings.AutoParry and not _G_settings.AntiParry) or parryCooldown then return end
+                local myChar = lp.Character
+                if not myChar or not myChar:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("HumanoidRootPart") then return end
+                local dist = (char.HumanoidRootPart.Position - myChar.HumanoidRootPart.Position).Magnitude
+                local animId = track.Animation.AnimationId
+                local idNum = tonumber(animId:match("%d+"))
+                if not idNum then return end
+                local name = getAnimInfoCache(idNum)
+                if _G_settings.AutoParry and dist <= _G_settings.AutoParryDist and not isParrying then
+                    for _, keyword in pairs(AnimKeywords) do if name:lower():find(keyword:lower()) then task.spawn(performParry); break end end
+                end
+                if _G_settings.AntiParry and dist <= _G_settings.AntiParryDist then
+                    for _, defName in pairs(DefenseNames) do
+                        if name:find(defName) then
+                            if keypress and not parryCooldown then
+                                parryCooldown = true
+                                task.spawn(function()
+                                    keypress(0x31); task.wait(0.01); keyrelease(0x31); task.wait(0.05); keypress(0x31); task.wait(0.01); keyrelease(0x31); task.wait(0.05); parryCooldown = false 
+                                end)
+                            end
+                            break
+                        end
+                    end
+                end
+            end)
+        end
+        if v.Character then connectCharacter(v.Character) end
+        v.CharacterAdded:Connect(connectCharacter)
+    end
+    for _, player in pairs(game:GetService("Players"):GetPlayers()) do if player ~= lp then setupParrySystems(player) end end
+    game:GetService("Players").PlayerAdded:Connect(setupParrySystems)
+end
+
+-- ==========================================
+-- [[ Hitbox System Engine ]]
+-- ==========================================
+task.spawn(function()
+    while task.wait(1) do 
+        if _G_settings.HitboxEnabled and not isMainGame then
+            for _, ent in ipairs(LiveTargets) do
+                 if not ent.isBot and not _G_settings.IgnoredPlayers[ent.name] then
+                    pcall(function()
+                        if ent.model and ent.model:FindFirstChild("Head") then
+                            local head = ent.model.Head
+                            head.Size = Vector3.new(_G_settings.HitboxSize, _G_settings.HitboxSize, _G_settings.HitboxSize)
+                            head.Transparency = 0.5
+                            head.CanCollide = false
+                            head.Massless = true
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- [[ Player Boost System Engine ]]
+-- ==========================================
+task.spawn(function()
+    while task.wait(0.5) do
+        pcall(function()
+            local char = lp.Character
+            if char and char:FindFirstChild("Humanoid") then
+                local hum = char.Humanoid
+                if _G_settings.JumpBoost then if hum.UseJumpPower then hum.JumpPower = 50 * 1.3 else hum.JumpHeight = 7.2 * 1.3 end
+                else
+                    if hum.UseJumpPower and hum.JumpPower == 50 * 1.3 then hum.JumpPower = 50 end
+                    if not hum.UseJumpPower and hum.JumpHeight == 7.2 * 1.3 then hum.JumpHeight = 7.2 end
+                end
+            end
+        end)
+    end
+end)
+RunService.RenderStepped:Connect(function(dt)
+    if _G_settings.SpeedBoost then
+        pcall(function()
+            local char = lp.Character
+            if char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+                local hum = char.Humanoid
+                local hrp = char.HumanoidRootPart
+                if hum.MoveDirection.Magnitude > 0 then hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (4.8 * dt)) end
+            end
+        end)
+    end
+end)
+
+-- ==========================================
+-- [[ FAST RESPAWN ENGINE ]]
+-- ==========================================
+if isMainGame then
+    local isBusyWithRespawn = false
+    task.spawn(function()
+        while task.wait(0.2) do
+            if _G_settings.AutoFastRespawn then
+                pcall(function()
+                    local char = lp.Character
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hum and hum.Health <= 0 and not isBusyWithRespawn then
+                        isBusyWithRespawn = true
+                        if keypress then keypress(0x20); task.wait(4); keyrelease(0x20) end
+                        task.wait(1)
+                        isBusyWithRespawn = false
+                    end
+                end)
+            end
+        end
+    end)
+    task.spawn(function()
+        while true do
+            task.wait(60)
+            if _G_settings.AutoFastRespawn and not isBusyWithRespawn and lp.Character and lp.Character:FindFirstChild("Humanoid") and lp.Character.Humanoid.Health <= 0 then
+                if keypress then keypress(0x20); task.wait(0.1); keyrelease(0x20) end
+            end
+        end
+    end)
+end
+
+-- ==========================================
+-- [[ ANTI KUNAI MANAGER ]]
+-- ==========================================
+if isMainGame then
+    local DETECTION_DIST = 45 
+    local DODGE_DISTANCE = 18
+    local cooldown = 0.2
+    local last_dodge = 0
+    local dodgeSound = Instance.new("Sound")
+    dodgeSound.Name = "DodgeEffect"
+    dodgeSound.SoundId = "rbxassetid://134012322" 
+    dodgeSound.Volume = 2
+    local cachedKunais = {}
+    local last_scan = 0
+
+    RunService.Heartbeat:Connect(function()
+        if not _G_settings.KunaiDodge then return end
+        local char = lp.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        if dodgeSound.Parent ~= hrp then
+            dodgeSound.Parent = hrp
+        end
+
+        local now = tick()
+        if now - last_scan > 0.5 then
+            last_scan = now
+            cachedKunais = {}
+            local kunaiFolder = workspace:FindFirstChild("Kunai")
+            if kunaiFolder then
+                local projParts = kunaiFolder:FindFirstChild("ProjectileParts")
+                if projParts then
+                    for _, k in ipairs(projParts:GetChildren()) do
+                        if k.Name == "Kunai" and k:IsA("BasePart") then table.insert(cachedKunais, k) end
+                    end
+                end
+            end
+            local junkFolder = workspace:FindFirstChild("EffectsJunk")
+            if junkFolder then
+                local cache = junkFolder:FindFirstChild("PartCache")
+                local searchTarget = cache or junkFolder
+                for _, k in ipairs(searchTarget:GetChildren()) do
+                    if k.Name == "Kunai" and k:IsA("BasePart") then table.insert(cachedKunais, k) end
+                end
+            end
+        end
+
+        for _, obj in ipairs(cachedKunais) do
+            if obj and obj.Parent and not obj:IsDescendantOf(char) then
+                if obj.Position.Y > 10000 or obj.Position.Y < -10000 then continue end
+                local dist = (obj.Position - hrp.Position).Magnitude
+                if dist < DETECTION_DIST then
+                    local lookDir = obj.CFrame.LookVector
+                    local dirToMe = (hrp.Position - obj.Position).Unit
+                    if lookDir:Dot(dirToMe) > 0.8 then
+                        if now - last_dodge > cooldown then
+                            last_dodge = now
+                            local side = hrp.CFrame.RightVector * (math.random() > 0.5 and DODGE_DISTANCE or -DODGE_DISTANCE)
+                            hrp.CFrame = hrp.CFrame + side
+                            dodgeSound:Play()
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- ==========================================
+-- [[ ANTI SCRIPTS MANAGER (OPTIMIZED) ]]
+-- ==========================================
+local AntiConnections = {}
+
+local function StopAnti(name)
+    if AntiConnections[name] then
+        for _, conn in ipairs(AntiConnections[name]) do
+            pcall(function() conn:Disconnect() end)
+        end
+        AntiConnections[name] = nil
+    end
+    -- Reset lighting visuals forcefully to avoid getting stuck
+    pcall(function()
+        if name == "Grenade" and Lighting:FindFirstChild("Acrocan0_GrenadeFilter") then Lighting.Acrocan0_GrenadeFilter.TintColor = Color3.fromRGB(255, 255, 255) end
+        if name == "Molotov" and Lighting:FindFirstChild("Acrocan0_FireFilter") then Lighting.Acrocan0_FireFilter.TintColor = Color3.fromRGB(255, 255, 255) end
+        if name == "C4" and Lighting:FindFirstChild("C4_SafetyFilter") then Lighting.C4_SafetyFilter.TintColor = Color3.fromRGB(255, 255, 255) end
+    end)
+end
+
+-- Anti-BearTrap
+local function StartAntiBearTrap()
+    StopAnti("BearTrap")
+    local conn1 = workspace.DescendantAdded:Connect(function(obj)
+        if obj.Name == "Hitbox" then
+            task.wait(0.1)
+            if obj.Parent and (obj.Parent.Name == "OpenBearTrap" or obj.Parent.Parent.Name == "EffectsJunk") then
+                obj:Destroy()
+            end
+        end
+    end)
+    
+    local conn2 = nil
+    local effectsJunk = workspace:FindFirstChild("EffectsJunk")
+    if effectsJunk then
+        conn2 = effectsJunk.DescendantAdded:Connect(function(descendant)
+            if descendant.Name == "Hitbox" then
+                task.wait(0.1)
+                if descendant.Parent and (descendant.Parent.Name == "OpenBearTrap" or descendant.Parent.Parent.Name == "EffectsJunk") then
+                    descendant:Destroy()
+                end
+            end
+        end)
+    end
+    AntiConnections["BearTrap"] = {conn1, conn2}
+    
+    -- Optimized: Running heavy scan in background thread to prevent lag spikes
+    task.spawn(function()
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v.Name == "Hitbox" and v.Parent and (v.Parent.Name == "OpenBearTrap" or v.Parent.Parent.Name == "EffectsJunk") then
+                v:Destroy()
+            end
+        end
+    end)
+end
+
+-- Anti-Grenade
+local function StartAntiGrenade()
+    StopAnti("Grenade")
+    local colorCorrection = Lighting:FindFirstChild("Acrocan0_GrenadeFilter") or Instance.new("ColorCorrectionEffect")
+    colorCorrection.Name = "Acrocan0_GrenadeFilter"
+    colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+    colorCorrection.Parent = Lighting
+
+    local activeGrenades = {}
+    local connections = {}
+
+    local function createSafetyWall(grenade)
+        task.wait(2)
+        if not grenade or not grenade.Parent then return end
+
+        local shieldRadius = 20
+        local activationRange = 60
+        local isVisualsActive = false
+        local sphere, billboard, textLabel, connection = nil, nil, nil, nil
+
+        local function cleanupVisuals()
+            if not isVisualsActive then return end
+            isVisualsActive = false
+            activeGrenades[grenade] = nil
+            if billboard then billboard:Destroy(); billboard = nil end
+            if sphere then sphere:Destroy(); sphere = nil end
+        end
+
+        local function createVisuals()
+            if isVisualsActive then return end
+            isVisualsActive = true
+            activeGrenades[grenade] = shieldRadius
+
+            sphere = Instance.new("SphereHandleAdornment")
+            sphere.Radius = shieldRadius
+            sphere.Color3 = Color3.fromRGB(255, 0, 0)
+            sphere.Transparency = 1
+            sphere.Adornee = grenade
+            sphere.AlwaysOnTop = false
+            sphere.Parent = grenade
+            TweenService:Create(sphere, TweenInfo.new(0.5), {Transparency = 0.75}):Play()
+
+            billboard = Instance.new("BillboardGui")
+            billboard.Size = UDim2.new(0, 200, 0, 50)
+            billboard.Adornee = grenade
+            billboard.AlwaysOnTop = true
+            billboard.ExtentsOffset = Vector3.new(0, 4, 0)
+            
+            textLabel = Instance.new("TextLabel")
+            textLabel.Parent = billboard
+            textLabel.BackgroundTransparency = 1
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.Text = "Acrocan0 Shield"
+            textLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+            textLabel.TextScaled = true
+            textLabel.Font = Enum.Font.GothamBold
+            textLabel.TextTransparency = 1
+            textLabel.TextStrokeTransparency = 1
+            textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            billboard.Parent = grenade
+            
+            TweenService:Create(textLabel, TweenInfo.new(0.5), {TextTransparency = 0, TextStrokeTransparency = 0.3}):Play()
+            local pulse = TweenService:Create(textLabel, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {TextTransparency = 0.6})
+            pulse:Play()
+        end
+
+        connection = RunService.Heartbeat:Connect(function()
+            if not grenade or not grenade.Parent then
+                cleanupVisuals()
+                if connection then connection:Disconnect() end
+                return
+            end
+            local char = lp.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local root = char.HumanoidRootPart
+                local distance = (root.Position - grenade.Position).Magnitude
+                if distance <= activationRange then
+                    createVisuals()
+                    if distance <= shieldRadius + 0.5 then
+                        local pushDir = (root.Position - grenade.Position).Unit
+                        root.AssemblyLinearVelocity = Vector3.new(pushDir.X * 145, root.AssemblyLinearVelocity.Y, pushDir.Z * 145)
+                    end
+                else
+                    cleanupVisuals()
+                end
+            end
+        end)
+        table.insert(connections, connection)
+    end
+
+    local renderConn = RunService.RenderStepped:Connect(function()
+        local char = lp.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then 
+            colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+            return 
+        end
+        local rootPos = char.HumanoidRootPart.Position
+        local maxIntensity = 0
+        for grenade, radius in pairs(activeGrenades) do
+            if grenade and grenade.Parent then
+                local distance = (grenade.Position - rootPos).Magnitude
+                local effectRange = radius * 2
+                if distance < effectRange then
+                    local intensity = 1 - (distance / effectRange)
+                    if intensity > maxIntensity then maxIntensity = intensity end
+                end
+            end
+        end
+        colorCorrection.TintColor = Color3.fromRGB(255, 255 - (maxIntensity * 160), 255 - (maxIntensity * 160))
+    end)
+    table.insert(connections, renderConn)
+
+    local function onDescendantAdded(obj)
+        if obj.Name == "utility5Proxy" and obj:IsA("BasePart") then
+            task.spawn(createSafetyWall, obj)
+        end
+    end
+    local connDesc = workspace.DescendantAdded:Connect(onDescendantAdded)
+    table.insert(connections, connDesc)
+    
+    task.spawn(function()
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj.Name == "utility5Proxy" and obj:IsA("BasePart") then
+                task.spawn(createSafetyWall, obj)
+            end
+        end
+    end)
+    AntiConnections["Grenade"] = connections
+end
+
+-- Anti-Molotov
+local function StartAntiMolotov()
+    StopAnti("Molotov")
+    local colorCorrection = Lighting:FindFirstChild("Acrocan0_FireFilter") or Instance.new("ColorCorrectionEffect")
+    colorCorrection.Name = "Acrocan0_FireFilter"
+    colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+    colorCorrection.Parent = Lighting
+
+    local activeFireSources = {}
+    local connections = {}
+
+    local function createPremiumMolotovShield(firePart)
+        if firePart:GetAttribute("Acrocan0_ShieldActive") then return end
+        firePart:SetAttribute("Acrocan0_ShieldActive", true)
+
+        local size = 35
+        local activationRange = 60
+        local isVisualsActive = false
+        local isExpired = false
+        local shield, innerShield, billboard, textLabel, connection = nil, nil, nil, nil, nil
+
+        local function forceDestroyAll()
+            isExpired = true
+            activeFireSources[firePart] = nil
+            if connection then connection:Disconnect() end
+            
+            if isVisualsActive then
+                local fadeOutTime = 0.5
+                if shield then TweenService:Create(shield, TweenInfo.new(fadeOutTime), {Transparency = 1}):Play() end
+                if innerShield then TweenService:Create(innerShield, TweenInfo.new(fadeOutTime), {Transparency = 1}):Play() end
+                if textLabel then TweenService:Create(textLabel, TweenInfo.new(fadeOutTime), {TextTransparency = 1, TextStrokeTransparency = 1}):Play() end
+                task.delay(fadeOutTime, function()
+                    if billboard then billboard:Destroy() end
+                    if shield then shield:Destroy() end
+                    if innerShield then innerShield:Destroy() end
+                end)
+            end
+        end
+
+        local function cleanupVisuals()
+            if not isVisualsActive then return end
+            isVisualsActive = false
+            activeFireSources[firePart] = nil
+            if billboard then billboard:Destroy(); billboard = nil end
+            if shield then shield:Destroy(); shield = nil end
+            if innerShield then innerShield:Destroy(); innerShield = nil end
+        end
+
+        local function createVisuals()
+            if isVisualsActive or isExpired then return end
+            isVisualsActive = true
+            activeFireSources[firePart] = size
+
+            shield = Instance.new("Part")
+            shield.Name = "Acrocan0_SquareShield"
+            shield.Shape = Enum.PartType.Block
+            shield.Size = Vector3.new(size, 2, size)
+            shield.Transparency = 1
+            shield.Color = Color3.fromRGB(255, 0, 0)
+            shield.Material = Enum.Material.ForceField
+            shield.Anchored = true
+            shield.CanCollide = false
+            shield.CFrame = firePart.CFrame
+            shield.Parent = firePart
+            TweenService:Create(shield, TweenInfo.new(0.5), {Transparency = 0.9}):Play()
+
+            innerShield = Instance.new("BoxHandleAdornment")
+            innerShield.Size = Vector3.new(size * 0.8, 1, size * 0.8)
+            innerShield.Transparency = 1
+            innerShield.Color3 = Color3.fromRGB(200, 0, 0)
+            innerShield.Adornee = firePart
+            innerShield.AlwaysOnTop = false
+            innerShield.Parent = firePart
+            TweenService:Create(innerShield, TweenInfo.new(0.5), {Transparency = 0.8}):Play()
+
+            billboard = Instance.new("BillboardGui")
+            billboard.Size = UDim2.new(0, 250, 0, 60)
+            billboard.Adornee = firePart
+            billboard.AlwaysOnTop = true
+            billboard.StudsOffset = Vector3.new(0, 7, 0)
+            
+            textLabel = Instance.new("TextLabel")
+            textLabel.Parent = billboard
+            textLabel.BackgroundTransparency = 1
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.Text = "WARNING: Acrocan0 Fire Shield"
+            textLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+            textLabel.TextScaled = true
+            textLabel.Font = Enum.Font.GothamBold
+            textLabel.TextTransparency = 1
+            textLabel.TextStrokeTransparency = 1
+            textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            billboard.Parent = firePart
+            
+            TweenService:Create(textLabel, TweenInfo.new(0.5), {TextTransparency = 0, TextStrokeTransparency = 0.3}):Play()
+            local pulse = TweenService:Create(textLabel, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {TextTransparency = 0.6})
+            pulse:Play()
+        end
+
+        task.delay(10, forceDestroyAll)
+
+        connection = RunService.Heartbeat:Connect(function()
+            if isExpired or not firePart or not firePart.Parent then
+                forceDestroyAll()
+                return
+            end
+            local char = lp.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local root = char.HumanoidRootPart
+                local distance = (root.Position - firePart.Position).Magnitude
+                if distance <= activationRange then
+                    createVisuals()
+                    local localPos = firePart.CFrame:PointToObjectSpace(root.Position)
+                    if math.abs(localPos.X) <= size/2 and math.abs(localPos.Z) <= size/2 then
+                        local pushDir = (root.Position - firePart.Position).Unit
+                        root.AssemblyLinearVelocity = Vector3.new(pushDir.X * 170, root.AssemblyLinearVelocity.Y, pushDir.Z * 170)
+                    end
+                else
+                    cleanupVisuals()
+                end
+            end
+        end)
+        table.insert(connections, connection)
+    end
+
+    local renderConn = RunService.RenderStepped:Connect(function()
+        local char = lp.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+            return
+        end
+        local rootPos = char.HumanoidRootPart.Position
+        local maxIntensity = 0
+        for firePart, sz in pairs(activeFireSources) do
+            if firePart and firePart.Parent then
+                local distance = (firePart.Position - rootPos).Magnitude
+                local effectRange = sz * 1.5
+                if distance < effectRange then
+                    local intensity = 1 - (distance / effectRange)
+                    if intensity > maxIntensity then maxIntensity = intensity end
+                end
+            end
+        end
+        colorCorrection.TintColor = Color3.fromRGB(255, 255 - (maxIntensity * 150), 255 - (maxIntensity * 150))
+    end)
+    table.insert(connections, renderConn)
+
+    local function onDescendantAdded(obj)
+        if obj:GetAttribute("MolotovId") or (obj:IsA("BasePart") and obj.Name == "" and obj:GetAttribute("DamagePerSecond")) then
+            task.spawn(createPremiumMolotovShield, obj)
+        end
+    end
+    local connDesc = workspace.DescendantAdded:Connect(onDescendantAdded)
+    table.insert(connections, connDesc)
+    
+    task.spawn(function()
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:GetAttribute("MolotovId") then
+                task.spawn(createPremiumMolotovShield, v)
+            end
+        end
+    end)
+    AntiConnections["Molotov"] = connections
+end
+
+-- Anti-C4 
+local function StartAntiC4()
+    StopAnti("C4")
+    local colorCorrection = Lighting:FindFirstChild("C4_SafetyFilter") or Instance.new("ColorCorrectionEffect")
+    colorCorrection.Name = "C4_SafetyFilter"
+    colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+    colorCorrection.Parent = Lighting
+
+    local activeC4s = {}
+    local connections = {}
+
+    local function createC4SafetySystem(c4)
+        if c4.Name ~= "utility7Proxy" then return end
+        
+        local shieldRadius = 24 
+        local activationRange = 60 
+        
+        local sphere = nil
+        local billboard = nil
+        local textLabel = nil
+        local isVisualsActive = false
+
+        local function cleanup()
+             if not isVisualsActive then return end
+            isVisualsActive = false
+            activeC4s[c4] = nil
+            
+            if sphere then TweenService:Create(sphere, TweenInfo.new(0.5), {Transparency = 1}):Play() end
+            if textLabel then TweenService:Create(textLabel, TweenInfo.new(0.5), {TextTransparency = 1}):Play() end
+            
+            task.delay(0.5, function()
+                if billboard then billboard:Destroy() end
+                if sphere then sphere:Destroy() end
+            end)
+        end
+
+        local conn
+        conn = RunService.Heartbeat:Connect(function()
+            if not c4 or not c4.Parent then
+                cleanup()
+                if conn then conn:Disconnect() end
+                return
+            end
+
+            local char = lp.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local root = char.HumanoidRootPart
+                local distance = (root.Position - c4.Position).Magnitude
+
+                if distance <= activationRange then
+                    if not isVisualsActive then
+                        isVisualsActive = true
+                        activeC4s[c4] = shieldRadius
+
+                        sphere = Instance.new("SphereHandleAdornment")
+                        sphere.Radius = shieldRadius
+                        sphere.Color3 = Color3.fromRGB(255, 0, 0)
+                        sphere.Transparency = 1 
+                        sphere.Adornee = c4
+                        sphere.AlwaysOnTop = false
+                        sphere.Parent = c4
+                        TweenService:Create(sphere, TweenInfo.new(0.6), {Transparency = 0.7}):Play()
+
+                        billboard = Instance.new("BillboardGui")
+                        billboard.Size = UDim2.new(0, 100, 0, 40)
+                        billboard.Adornee = c4
+                        billboard.AlwaysOnTop = true
+                        billboard.ExtentsOffset = Vector3.new(0, 6, 0)
+                        
+                        textLabel = Instance.new("TextLabel", billboard)
+                        textLabel.Size = UDim2.new(1, 0, 1, 0)
+                        textLabel.Text = "C4" 
+                        textLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+                        textLabel.BackgroundTransparency = 1
+                        textLabel.TextScaled = true
+                        textLabel.Font = Enum.Font.GothamBold
+                        textLabel.TextTransparency = 1 
+                        billboard.Parent = c4
+                        
+                        TweenService:Create(textLabel, TweenInfo.new(0.6), {TextTransparency = 0}):Play()
+                        local pulseInfo = TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+                        TweenService:Create(textLabel, pulseInfo, {TextTransparency = 0.6}):Play()
+                        TweenService:Create(sphere, pulseInfo, {Transparency = 0.85}):Play()
+                    end
+
+                    if distance <= shieldRadius + 0.5 then
+                        local pushDir = (root.Position - c4.Position).Unit
+                        root.AssemblyLinearVelocity = Vector3.new(pushDir.X * 150, root.AssemblyLinearVelocity.Y, pushDir.Z * 150)
+                    end
+                else
+                    cleanup() 
+                end
+            end
+        end)
+        table.insert(connections, conn)
+    end
+
+    local renderConn = RunService.RenderStepped:Connect(function()
+        local char = lp.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then 
+            colorCorrection.TintColor = colorCorrection.TintColor:Lerp(Color3.fromRGB(255, 255, 255), 0.1)
+            return 
+        end
+
+        local rootPos = char.HumanoidRootPart.Position
+        local maxIntensity = 0 
+        local found = false
+
+        for c4, radius in pairs(activeC4s) do
+            if c4 and c4.Parent then
+                local distance = (c4.Position - rootPos).Magnitude
+                if distance <= 60 then
+                    found = true
+                    local intensity = 1 - (distance / 60)
+                    if intensity > maxIntensity then maxIntensity = intensity end
+                end
+             end
+        end
+        
+        local targetColor = Color3.fromRGB(255, 255 - (maxIntensity * 180), 255 - (maxIntensity * 180))
+        colorCorrection.TintColor = colorCorrection.TintColor:Lerp(targetColor, 0.05)
+    end)
+    table.insert(connections, renderConn)
+
+    local connDesc = workspace.DescendantAdded:Connect(function(obj)
+        if obj:IsA("BasePart") and obj.Name == "utility7Proxy" then
+            task.spawn(createC4SafetySystem, obj)
+        end
+    end)
+    table.insert(connections, connDesc)
+
+    task.spawn(function()
+        for _, v in pairs(workspace:GetDescendants()) do 
+            if v:IsA("BasePart") and v.Name == "utility7Proxy" then
+                task.spawn(createC4SafetySystem, v)
+            end
+        end
+    end)
+
+    AntiConnections["C4"] = connections
+end
+
+-- ==========================================
+-- [[ User Interface (UI) Settings ]]
+-- ==========================================
+local ScreenGui = Instance.new("ScreenGui", pgui)
+ScreenGui.Name = "AcroLangHub"; ScreenGui.ResetOnSpawn = false; ScreenGui.IgnoreGuiInset = true; ScreenGui.DisplayOrder = 2147483647
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local ScaryTextureID = "rbxassetid://131103233"
+local ScaryEdgeColor = Color3.fromRGB(150, 0, 0) 
+
+local function ApplyScaryTexture(parentUI)
+    local tex = Instance.new("ImageLabel", parentUI)
+    tex.Size = UDim2.new(1, 0, 1, 0)
+    tex.BackgroundTransparency = 1; tex.Image = ScaryTextureID; tex.ImageTransparency = 0.6; tex.ScaleType = Enum.ScaleType.Crop
+    tex.ZIndex = parentUI.ZIndex
+    local corner = parentUI:FindFirstChildOfClass("UICorner")
+    if corner then local newCorner = Instance.new("UICorner", tex); newCorner.CornerRadius = corner.CornerRadius end
+    return tex
+end
+
+local ClickSound = Instance.new("Sound", SoundService); ClickSound.SoundId = "rbxassetid://6895079853"; ClickSound.Volume = 1
+local OpenSound = Instance.new("Sound", SoundService); OpenSound.SoundId = "rbxassetid://6895079853"; OpenSound.Volume = 1.2
+
+local function ApplyButtonEffects(button)
+    local scale = Instance.new("UIScale", button)
+    button.MouseButton1Down:Connect(function() ClickSound:Play(); TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 0.9}):Play() end)
+    button.MouseButton1Up:Connect(function() TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {Scale = 1}):Play() end)
+    button.MouseLeave:Connect(function() TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 1}):Play() end)
+end
+
+local IntroFrame = Instance.new("Frame", ScreenGui)
+IntroFrame.Size = UDim2.new(1, 0, 1, 0); IntroFrame.BackgroundColor3 = Color3.new(0, 0, 0); IntroFrame.BackgroundTransparency = 1; IntroFrame.ZIndex = 999999998
+IntroFrame.Visible = false
+local IntroLogo = Instance.new("ImageLabel", IntroFrame); IntroLogo.AnchorPoint = Vector2.new(0.5, 0.5); IntroLogo.Position = UDim2.new(0.5, 0, 0.5, 0)
+IntroLogo.Size = UDim2.new(0, 300, 0, 169); IntroLogo.BackgroundTransparency = 1; IntroLogo.ImageTransparency = 1; IntroLogo.Image = "rbxthumb://type=Asset&id=92219777578212&w=768&h=432"; IntroLogo.ScaleType = Enum.ScaleType.Fit
+IntroLogo.ZIndex = 999999999
+local music = Instance.new("Sound", SoundService); music.SoundId = "rbxassetid://108158862531514"; music.Volume = 0; music.Looped = true
+
+local CurrentLang = "EN"
+local UI_Elements = {}; local UI_Inputs = {}; local RGBButtons = {}
+local RedRGBButtons = {}
+
+local FOVCircle
+-- Protection fallback logic for executors lacking Drawing API
+if typeof(Drawing) == "table" and type(Drawing.new) == "function" then
+    pcall(function()
+        FOVCircle = Drawing.new("Circle")
+        FOVCircle.Thickness = 2
+        FOVCircle.NumSides = 60
+        FOVCircle.Visible = false
+        FOVCircle.Radius = _G_settings.FOV
+    end)
+end
+
+local Translations = {
+    EN = {
+        Aim = "Aimbot", Sys = "System", Cred = "Credits", SaveTab = "Profiles", Admin = "Admin", Capab = "Capabilities",
+        AimBtn = "Aimbot: ", WallBtn = "Wall Check: ", LowHealthBtn = "Low Health Focus: ", MaxD = "Max Distance", FOVInp = "FOV Size", 
+        UsePredBtn = "Prediction: ", Pred = "Static Prediction", AutoPredBtn = "Auto Prediction: ", 
+        AutoPredBase = "Base Pred", 
+        DistThreshold = "Dist Threshold", CloseMult = "Close Multiplier", FarMult = "Far Multiplier", VerticalStrength = "Vertical Strength",
+        Smooth = "Smoothness", HideFOV = "Show FOV: ",
+        FPS = "FPS Unlocker", ShowFPS = "FPS Counter: ", ON = "ON", OFF = "OFF",
+        PlayerListBtn = "Player List (Ignore)", Back = "Back", NoFx = "Remove Effects",
+        Crosshair = "Crosshair red: ", CrosshairEditBtn = "Crosshair red edit", RedJoystickEditBtn = "Red Joystick edit", ProfileName = "Profile Name", SaveProfile = "Save Settings", LoadProfile = "Load Settings",
+        TargetBtn = "Target Part: ", AutoParryBtn = "Auto Parry: ", AntiParryBtn = "Anti Parry: ",
+        CustomJoyBtn = "Red Joystick: ",
+        AutoParryDist = "Auto Parry Dist", AntiParryDist = "Anti Parry Dist",
+        HitboxBtn = "Hitbox: ", SpeedBtn = "Speed+ : ", JumpBtn = "Jump+ : ", KunaiBtn = "Kunai Dodge (50%): ",
+        ESP_Enabled = "ESP Main: ", ESP_Boxes = "ESP Boxes: ", ESP_Tracers = "ESP Tracers: ", 
+        ESP_Arrows = "ESP Arrows: ",
+        AutoFastRespawnBtn = "Auto Fast Respawn: ",
+        RightClickAimBtn = "Aim on Right Click: ",
+        AimAtBotsBtn = "Aim at Bots: ", ESP_OnBotsBtn = "ESP on Bots: ", CheckTheBotBtn = "Check the bot (Green ESP): ",
+        AntiBearTrapBtn = "Anti BearTrap: ",
+        AntiGrenadeBtn = "Anti Grenade: ",
+        AntiMolotovBtn = "Anti Molotov: ",
+        AntiC4Btn = "Anti C4: ",
+    }
+}
+
+-- ==========================================
+-- [[ Custom Crosshair Setup ]]
+-- ==========================================
+local CrosshairGui = Instance.new("ScreenGui", pgui)
+CrosshairGui.Name = "AcroCustomCrosshair"; CrosshairGui.IgnoreGuiInset = true; CrosshairGui.ResetOnSpawn = false; CrosshairGui.DisplayOrder = 100000
+local CrosshairCenter = Instance.new("Frame", CrosshairGui); CrosshairCenter.AnchorPoint = Vector2.new(0.5, 0.5)
+CrosshairCenter.Position = UDim2.new(0.5, 0, 0.5, _G_settings.CrosshairOffsetY); CrosshairCenter.Size = UDim2.new(0, 30, 0, 30); CrosshairCenter.BackgroundTransparency = 1
+CrosshairCenter.Visible = false
+local RedDot = Instance.new("Frame", CrosshairCenter); RedDot.AnchorPoint = Vector2.new(0.5, 0.5); RedDot.Position = UDim2.new(0.5, 0, 0.5, 0)
+RedDot.Size = UDim2.new(0, 6, 0, 6); RedDot.BackgroundColor3 = Color3.fromRGB(255, 0, 0); RedDot.BorderSizePixel = 0; RedDot.ZIndex = 2
+Instance.new("UICorner", RedDot).CornerRadius = UDim.new(1, 0)
+
+task.spawn(function()
+    local uis = game:GetService("UserInputService")
+    while task.wait(1) do if _G_settings.CustomCrosshair then uis.MouseIconEnabled = false end end
+end)
+
+local BlurEffect = Instance.new("BlurEffect", Lighting)
+BlurEffect.Name = "AcroBlur"; BlurEffect.Size = 0
+local BgFrame = Instance.new("Frame", ScreenGui); BgFrame.Size = UDim2.new(1, 0, 1, 0)
+BgFrame.BackgroundColor3 = Color3.new(0, 0, 0); BgFrame.BackgroundTransparency = 1; BgFrame.ZIndex = -1
+BgFrame.Visible = false
+
+local StarsData = {}
+for i = 1, 30 do 
+    local star = Instance.new("Frame", BgFrame)
+    local starSize = math.random(2, 5) 
+    star.Size = UDim2.new(0, starSize, 0, starSize)
+    star.Position = UDim2.new(math.random(), 0, math.random(), 0); star.BackgroundColor3 = ScaryEdgeColor; star.BackgroundTransparency = 1
+    Instance.new("UICorner", star).CornerRadius = UDim.new(1, 0)
+    table.insert(StarsData, {frame = star, speed = math.random(5, 15) / 10000})
+end
+
+local function ShowModeMsg(txt)
+    if ScreenGui:FindFirstChild("ModeNotify") then ScreenGui.ModeNotify:Destroy() end
+    local msg = Instance.new("TextLabel", ScreenGui)
+    msg.Name = "ModeNotify"; msg.Size = UDim2.new(0, 400, 0, 60); msg.Position = UDim2.new(0.5, -200, 0.8, 0); msg.BackgroundColor3 = Color3.new(0,0,0)
+    msg.TextColor3 = ScaryEdgeColor; msg.Text = txt; msg.Font = "GothamBold"; msg.TextSize = 16; msg.TextWrapped = true; Instance.new("UICorner", msg); msg.BackgroundTransparency = 1
+    msg.TextTransparency = 1; msg.ZIndex = 50000; ApplyScaryTexture(msg) 
+    local s = Instance.new("UIStroke", msg); s.Thickness = 1
+    s.Color = ScaryEdgeColor; s.Transparency = 1 
+    TweenService:Create(msg, TweenInfo.new(0.3), {BackgroundTransparency = 0.2, TextTransparency = 0}):Play()
+    TweenService:Create(s, TweenInfo.new(0.3), {Transparency = 0}):Play()
+    task.delay(4.5, function() if msg then TweenService:Create(msg, TweenInfo.new(0.3), {BackgroundTransparency = 1, TextTransparency = 1}):Play(); TweenService:Create(s, TweenInfo.new(0.3), {Transparency = 1}):Play(); task.wait(0.3); msg:Destroy() end end)
+end
+
+local RegistryFile = "acrocan0_hub_profiles_list.json"
+local SavedProfilesList = {}
+local function LoadRegistry()
+    if readfile and isfile and isfile(RegistryFile) then pcall(function() SavedProfilesList = HttpService:JSONDecode(readfile(RegistryFile)) end) end
+    local hasAcroAim = false
+    for _, v in ipairs(SavedProfilesList) do if v == "acrocan0 aim" then hasAcroAim = true break end end
+    if not hasAcroAim then table.insert(SavedProfilesList, 1, "acrocan0 aim") end
+end
+local function SaveRegistry() if writefile then pcall(function() writefile(RegistryFile, HttpService:JSONEncode(SavedProfilesList)) end) end end
+local function AddToRegistry(name)
+    local exists = false
+    for _, v in ipairs(SavedProfilesList) do if v == name then exists = true break end end
+    if not exists then table.insert(SavedProfilesList, name); SaveRegistry() end
+end
+local function GetProfileFilename(profileName)
+    profileName = profileName or "default"; profileName = string.gsub(profileName, "[^%w%s_-]", "")
+    if profileName == "" then profileName = "default" end
+    return "acrocan0_hub_settings_" .. profileName .. ".json"
+end
+
+local RefreshProfilesUI 
+local function SaveSettings(profileName)
+    local fileName = GetProfileFilename(profileName)
+    if writefile then
+        local success, err = pcall(function() writefile(fileName, HttpService:JSONEncode(_G_settings)) end)
+        if success then ShowModeMsg("Profile Saved: " .. profileName); AddToRegistry(profileName); if RefreshProfilesUI then RefreshProfilesUI() end else ShowModeMsg("Error Saving Profile!") end
+    else ShowModeMsg("Your executor does not support saving.") end
+end
+local function LoadSettings(profileName, silent)
+    if profileName == "acrocan0 aim" then
+        for k, v in pairs(Acrocan0_Hardcoded_Settings) do if _G_settings[k] ~= nil then _G_settings[k] = v end end
+        local fileName = GetProfileFilename(profileName)
+        if readfile and isfile and isfile(fileName) then
+            pcall(function()
+                local decoded = HttpService:JSONDecode(readfile(fileName))
+                for k, v in pairs(decoded) do if _G_settings[k] ~= nil then _G_settings[k] = v end end
+            end)
+        end
+        if not silent then ShowModeMsg("Loaded Official Profile: acrocan0 aim") end
+        return true
+    end
+    local fileName = GetProfileFilename(profileName)
+    if readfile and isfile and isfile(fileName) then
+        local success, decoded = pcall(function() return HttpService:JSONDecode(readfile(fileName)) end)
+        if success and type(decoded) == "table" then
+            for k, v in pairs(decoded) do if _G_settings[k] ~= nil then _G_settings[k] = v end end
+            if not silent then ShowModeMsg("Profile Loaded: " .. profileName) end
+            return true
+        end
+    end
+    if not silent then ShowModeMsg("Profile not found: " .. profileName) end
+    return false
+end
+
+local LoadingFrame = Instance.new("Frame", ScreenGui); LoadingFrame.Size = UDim2.new(1,0,1,0); LoadingFrame.BackgroundColor3 = Color3.new(0,0,0); LoadingFrame.ZIndex = 999999998; LoadingFrame.BackgroundTransparency = 1
+LoadingFrame.Visible = false
+local WelcomeLabel = Instance.new("TextLabel", LoadingFrame); WelcomeLabel.Size = UDim2.new(1,0,0,60); WelcomeLabel.Position = UDim2.new(0,0,0.45,-50); WelcomeLabel.Text = "Welcome to acrocan0"
+WelcomeLabel.TextSize = 45; WelcomeLabel.Font = "GothamBold"; WelcomeLabel.BackgroundTransparency = 1; WelcomeLabel.TextTransparency = 1; WelcomeLabel.ZIndex = 999999999
+local WelcomeShadow = Instance.new("TextLabel", WelcomeLabel)
+WelcomeShadow.Size = UDim2.new(1,0,1,0); WelcomeShadow.Position = UDim2.new(0,1,0,1); WelcomeShadow.BackgroundTransparency = 1; WelcomeShadow.ZIndex = 999999998; WelcomeShadow.Text = WelcomeLabel.Text; WelcomeShadow.TextSize = WelcomeLabel.TextSize
+WelcomeShadow.Font = WelcomeLabel.Font; WelcomeShadow.TextTransparency = 1 
+local LoadLabel = Instance.new("TextLabel", LoadingFrame); LoadLabel.Size = UDim2.new(1,0,0,30); LoadLabel.Position = UDim2.new(0,0,0.55,10); LoadLabel.Text = "Loading"
+LoadLabel.TextSize = 20; LoadLabel.Font = "GothamBold"; LoadLabel.BackgroundTransparency = 1; LoadLabel.TextTransparency = 1; LoadLabel.ZIndex = 999999999
+
+local CustomBtn = Instance.new("ImageButton", ScreenGui)
+CustomBtn.AnchorPoint = Vector2.new(0.5, 0); CustomBtn.Size = UDim2.new(0, 70, 0, 40); CustomBtn.Position = UDim2.new(0.5, 0, 0, 10); CustomBtn.BackgroundTransparency = 1
+CustomBtn.Image = "rbxthumb://type=Asset&id=92219777578212&w=768&h=432"; CustomBtn.ScaleType = Enum.ScaleType.Fit; CustomBtn.Visible = false; CustomBtn.Draggable = true; CustomBtn.ZIndex = 10000; ApplyButtonEffects(CustomBtn)
+
+local AimbotToggleBtn = Instance.new("TextButton", ScreenGui)
+AimbotToggleBtn.Size = UDim2.new(0, 50, 0, 25); AimbotToggleBtn.Position = UDim2.new(0, 10, 0.5, -12); AimbotToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25); AimbotToggleBtn.Font = "GothamBold"
+AimbotToggleBtn.TextSize = 12; AimbotToggleBtn.Visible = false; AimbotToggleBtn.Draggable = true; AimbotToggleBtn.ZIndex = 10000; Instance.new("UICorner", AimbotToggleBtn).CornerRadius = UDim.new(0, 4)
+ApplyScaryTexture(AimbotToggleBtn) 
+
+local FPSDisplay = Instance.new("TextLabel", ScreenGui); FPSDisplay.Size = UDim2.new(0, 60, 0, 22); FPSDisplay.Position = UDim2.new(1, -10, 0, 10)
+FPSDisplay.AnchorPoint = Vector2.new(1, 0); FPSDisplay.BackgroundColor3 = Color3.fromRGB(15, 15, 15); FPSDisplay.TextColor3 = ScaryEdgeColor; FPSDisplay.Font = "GothamBold"; FPSDisplay.TextSize = 12
+FPSDisplay.Text = "FPS: 60"; FPSDisplay.Visible = false; FPSDisplay.ZIndex = 10000; Instance.new("UICorner", FPSDisplay).CornerRadius = UDim.new(0, 4)
+local FPSDisplayStroke = Instance.new("UIStroke", FPSDisplay)
+FPSDisplayStroke.Color = ScaryEdgeColor; FPSDisplayStroke.Thickness = 0.5; ApplyScaryTexture(FPSDisplay)
+
+-- ==========================================
+-- [[ Music Control Button ]]
+-- ==========================================
+local MusicBtn = Instance.new("TextButton", ScreenGui)
+MusicBtn.Size = UDim2.new(0, 40, 0, 40)
+MusicBtn.Position = UDim2.new(1, -10, 0, 40)
+MusicBtn.AnchorPoint = Vector2.new(1, 0)
+MusicBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MusicBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
+MusicBtn.Text = "🔇"
+MusicBtn.Font = "GothamBold"
+MusicBtn.TextSize = 20
+MusicBtn.Visible = false
+MusicBtn.ZIndex = 10000
+Instance.new("UICorner", MusicBtn).CornerRadius = UDim.new(0, 4)
+ApplyScaryTexture(MusicBtn)
+local mtStroke = Instance.new("UIStroke", MusicBtn)
+mtStroke.Color = ScaryEdgeColor
+mtStroke.Thickness = 1
+ApplyButtonEffects(MusicBtn)
+
+MusicBtn.MouseButton1Click:Connect(function()
+    local fadeTween = TweenService:Create(music, TweenInfo.new(1), {Volume = 0})
+    fadeTween:Play()
+    fadeTween.Completed:Wait()
+    music:Stop()
+    MusicBtn:Destroy()
+end)
+
+local function UpdateAimbotToggleButton()
+    if _G_settings.Enabled then AimbotToggleBtn.Text = "ON"; AimbotToggleBtn.TextColor3 = Color3.new(0, 1, 0) else AimbotToggleBtn.Text = "OFF"; AimbotToggleBtn.TextColor3 = Color3.new(1, 0, 0) end
+end
+AimbotToggleBtn.MouseButton1Click:Connect(function()
+    _G_settings.Enabled = not _G_settings.Enabled; if FOVCircle then FOVCircle.Visible = (_G_settings.Enabled and not _G_settings.HideFOV) end; UpdateAimbotToggleButton()
+    if UI_Elements.AimBtn then local T = Translations[CurrentLang]; UI_Elements.AimBtn.Text = T.AimBtn..(_G_settings.Enabled and T.ON or T.OFF) end
+end)
+UpdateAimbotToggleButton()
+ApplyButtonEffects(AimbotToggleBtn)
+
+local MainFrame = Instance.new("Frame", ScreenGui); MainFrame.AnchorPoint = Vector2.new(0.5, 0.5); MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0, 0, 0, 0); MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15); MainFrame.BackgroundTransparency = 0.2; MainFrame.Visible = false; MainFrame.Active = true
+MainFrame.Draggable = true; MainFrame.ZIndex = 100
+Instance.new("UICorner", MainFrame)
+
+local HubStroke = Instance.new("UIStroke", MainFrame)
+HubStroke.Thickness = 3
+HubStroke.Color = Color3.new(1, 1, 1)
+local HubGradient = Instance.new("UIGradient", HubStroke)
+HubGradient.Rotation = 90
+ApplyScaryTexture(MainFrame) 
+
+local HubTitle = Instance.new("TextLabel", MainFrame)
+HubTitle.Size = UDim2.new(1, 0, 0, 30); HubTitle.Position = UDim2.new(0, 0, 0, -35); HubTitle.BackgroundTransparency = 1; HubTitle.Text = "acrocan0 hub v3.1"
+HubTitle.TextColor3 = Color3.new(1, 0.2, 0.2)
+HubTitle.Font = "GothamBold"; HubTitle.TextSize = 20
+HubTitle.ZIndex = 101
+local TitleStroke = Instance.new("UIStroke", HubTitle)
+TitleStroke.Color = Color3.new(0, 0, 0); TitleStroke.Thickness = 1.5
+
+local KeyTimerLabel = Instance.new("TextLabel", MainFrame)
+KeyTimerLabel.Size = UDim2.new(0, 150, 0, 20)
+KeyTimerLabel.Position = UDim2.new(1, -160, 0, -30); KeyTimerLabel.BackgroundTransparency = 1; KeyTimerLabel.Text = "Key Time: 00:00:00"
+KeyTimerLabel.TextColor3 = Color3.fromRGB(200, 50, 50)
+KeyTimerLabel.Font = "GothamBold"; KeyTimerLabel.TextSize = 12; KeyTimerLabel.TextXAlignment = Enum.TextXAlignment.Right
+KeyTimerLabel.ZIndex = 101
+
+task.spawn(function()
+    while task.wait(1) do
+        if isAdmin then KeyTimerLabel.Text = "Key: VIP (No Expiry)" else
+            local timeLeft = KeyExpirationTime - os.time()
+            if timeLeft > 0 then
+                local h = math.floor(timeLeft / 3600); local m = math.floor((timeLeft % 3600) / 60); local s = timeLeft % 60
+                KeyTimerLabel.Text = string.format("Time Left: %02d:%02d:%02d", h, m, s)
+            else KeyTimerLabel.Text = "Key Expired!" end
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local t = (math.sin(tick() * 1.5) + 1) / 2
+    local lightRed = Color3.fromRGB(255, 80, 80)
+    local darkRed = Color3.fromRGB(80, 0, 0)
+    HubGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, lightRed:Lerp(darkRed, t)),
+        ColorSequenceKeypoint.new(1, darkRed:Lerp(lightRed, t))
+    })
+
+    if BgFrame.Visible and BgFrame.BackgroundTransparency < 1 then
+        for _, data in pairs(StarsData) do
+            local pos = data.frame.Position
+            local newY = pos.Y.Scale + data.speed
+            if newY > 1 then newY = 0; data.frame.Position = UDim2.new(math.random(), 0, 0, 0) else data.frame.Position = UDim2.new(pos.X.Scale, 0, newY, 0) end
+        end
+    end
+
+    local hue = (tick() % 3) / 3
+    local color = Color3.fromHSV(hue, 1, 1)
+    for _, btn in pairs(RGBButtons) do
+        if btn and btn:IsDescendantOf(ScreenGui) then btn.TextColor3 = color; local stroke = btn:FindFirstChildOfClass("UIStroke"); if stroke then stroke.Color = color end end
+    end
+    local redPulse = math.abs(math.sin(tick() * 3))
+    local redColor = Color3.new(0.6 + (redPulse * 0.4), 0, 0)
+    for _, btn in pairs(RedRGBButtons) do
+        if btn and btn:IsDescendantOf(ScreenGui) then btn.TextColor3 = redColor; local stroke = btn:FindFirstChildOfClass("UIStroke"); if stroke then stroke.Color = redColor end end
+    end
+end)
+
+local isHubOpen = false
+local function ToggleMainHub()
+    isHubOpen = not isHubOpen
+    if isHubOpen then
+        OpenSound:Play()
+        BgFrame.Visible = true; MainFrame.Visible = true
+        TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 550, 0, 280)}):Play()
+        TweenService:Create(BlurEffect, TweenInfo.new(0.5), {Size = 18}):Play()
+        TweenService:Create(BgFrame, TweenInfo.new(0.5), {BackgroundTransparency = 0.35}):Play()
+    else
+        local closeTween = TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)})
+        closeTween:Play()
+        TweenService:Create(BlurEffect, TweenInfo.new(0.4), {Size = 0}):Play(); TweenService:Create(BgFrame, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+        closeTween.Completed:Wait()
+        if not isHubOpen then MainFrame.Visible = false; BgFrame.Visible = false end
+    end
+end
+
+CustomBtn.MouseButton1Click:Connect(ToggleMainHub)
+
+local function MakeTab(key, x, parentHold, width) 
+    local b = Instance.new("TextButton", parentHold)
+    b.Size = UDim2.new(width,0,1,0); b.Position = UDim2.new(x,0,0,0); b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    b.TextColor3 = Color3.new(1, 0.2, 0.2)
+    b.Font = "GothamBold"; b.TextSize = 10
+    b.ZIndex = 102; UI_Elements[key] = b; Instance.new("UICorner", b); ApplyScaryTexture(b); ApplyButtonEffects(b); return b 
+end
+
+local TabHold = Instance.new("Frame", MainFrame)
+TabHold.Size = UDim2.new(1, 0, 0, 40); TabHold.BackgroundTransparency = 1; TabHold.ZIndex = 101
+local tabWidth = isAdmin and (1/6) or (1/5)
+MakeTab("Aim", 0, TabHold, tabWidth)
+MakeTab("SaveTab", tabWidth, TabHold, tabWidth); MakeTab("Sys", tabWidth * 2, TabHold, tabWidth)
+MakeTab("Capab", tabWidth * 3, TabHold, tabWidth)
+if isAdmin then MakeTab("Admin", tabWidth * 4, TabHold, tabWidth)
+MakeTab("Cred", tabWidth * 5, TabHold, tabWidth) else MakeTab("Cred", tabWidth * 4, TabHold, tabWidth) end
+
+local function MakePage() 
+    local p = Instance.new("ScrollingFrame", MainFrame)
+    p.Size = UDim2.new(1, -20, 1, -55); p.Position = UDim2.new(0, 10, 0, 45); p.BackgroundTransparency = 1; p.ScrollBarThickness = 0
+    p.Visible = false; p.ZIndex = 101
+    local grid = Instance.new("UIGridLayout", p); grid.CellSize = UDim2.new(0, 255, 0, 45)
+    grid.CellPadding = UDim2.new(0, 10, 0, 10)
+    return p 
+end
+
+local AimP = MakePage(); AimP.Visible = true
+local SaveP = MakePage(); local SysP = MakePage(); local CredP = MakePage(); local CapabP = MakePage(); local PlayerListP = MakePage()
+local AdminP = nil
+if isAdmin then AdminP = MakePage() end
+
+local CapabAlert = Instance.new("Frame", MainFrame); CapabAlert.Size = UDim2.new(1, 0, 1, 0)
+CapabAlert.BackgroundColor3 = Color3.fromRGB(15, 15, 15); CapabAlert.BackgroundTransparency = 0.1; CapabAlert.Visible = false; CapabAlert.ZIndex = 200; Instance.new("UICorner", CapabAlert)
+ApplyScaryTexture(CapabAlert)
+local AlertText = Instance.new("TextLabel", CapabAlert); AlertText.Size = UDim2.new(1, 0, 0.6, 0); AlertText.BackgroundTransparency = 1
+AlertText.Text = "These scripts were developed by ACROCAN0"; AlertText.Font = "GothamBold"; AlertText.TextSize = 18; AlertText.TextColor3 = ScaryEdgeColor
+AlertText.ZIndex = 201
+local AlertOkBtn = Instance.new("TextButton", CapabAlert); AlertOkBtn.Size = UDim2.new(0.4, 0, 0.2, 0); AlertOkBtn.Position = UDim2.new(0.3, 0, 0.65, 0)
+AlertOkBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); AlertOkBtn.TextColor3 = Color3.new(1, 1, 1); AlertOkBtn.Text = "OK"; AlertOkBtn.Font = "GothamBold"; AlertOkBtn.TextSize = 16
+AlertOkBtn.ZIndex = 201; Instance.new("UICorner", AlertOkBtn); local AlertOkStroke = Instance.new("UIStroke", AlertOkBtn); AlertOkStroke.Color = ScaryEdgeColor; AlertOkStroke.Thickness = 1
+ApplyButtonEffects(AlertOkBtn)
+local hasSeenAlert = false
+AlertOkBtn.MouseButton1Click:Connect(function() CapabAlert.Visible = false; hasSeenAlert = true; CapabP.Visible = true end)
+
+local function NewBtn(k, p, c) 
+    local b = Instance.new("TextButton", p)
+    b.BackgroundColor3 = Color3.fromRGB(35,35,35); b.TextColor3 = Color3.new(1,1,1); b.Font = "GothamBold"; b.TextSize = 10; b.ZIndex = 102; Instance.new("UICorner", b); UI_Elements[k] = b
+    ApplyScaryTexture(b); local s = Instance.new("UIStroke", b); s.Thickness = 0.5; s.Color = ScaryEdgeColor; ApplyButtonEffects(b); b.MouseButton1Click:Connect(function() c() end)
+    return b
+end
+
+local function NewInp(k, d, p, c) 
+    local f = Instance.new("Frame", p); f.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    f.ZIndex = 102; Instance.new("UICorner", f); ApplyScaryTexture(f); local s = Instance.new("UIStroke", f); s.Thickness = 0.5
+    s.Color = ScaryEdgeColor 
+    local l = Instance.new("TextLabel", f); l.Size = UDim2.new(1,0,0.4,0); l.BackgroundTransparency=1; l.TextColor3=Color3.new(0.8,0.8,0.8); l.TextSize=9
+    l.ZIndex = 103; UI_Elements[k]=l 
+    local box=Instance.new("TextBox", f); box.Size=UDim2.new(0.9,0,0.5,0); box.Position=UDim2.new(0.05,0,0.4,0); box.BackgroundColor3=Color3.fromRGB(40,40,40); box.TextColor3=Color3.new(1,1,1); box.Text=tostring(d); box.ZIndex = 103; Instance.new("UICorner", box); UI_Inputs[k] = box
+    box.FocusLost:Connect(function() ClickSound:Play() c(tonumber(box.Text) or box.Text) end); return f
+end
+
+local function Refresh()
+    local T = Translations[CurrentLang]
+    for k, e in pairs(UI_Elements) do
+        if k == "AimBtn" then e.Text = T.AimBtn..(_G_settings.Enabled and T.ON or T.OFF)
+        elseif k == "TargetBtn" then e.Text = T.TargetBtn..(_G_settings.TargetPart == "Head" and "Head" or "Torso") 
+        elseif k == "WallBtn" then e.Text = T.WallBtn..(_G_settings.WallCheck and T.ON or T.OFF)
+        elseif k == "HideFOV" then e.Text = T.HideFOV..(_G_settings.HideFOV and T.OFF or T.ON)
+        elseif k == "UsePredBtn" then e.Text = T.UsePredBtn..(_G_settings.UsePrediction and T.ON or T.OFF)
+        elseif k == "AutoPredBtn" then e.Text = T.AutoPredBtn..(_G_settings.AutoPred and T.ON or T.OFF)
+        elseif k == "ShowFPS" then e.Text = T.ShowFPS..(_G_settings.ShowFPSCounter and T.ON or T.OFF)
+        elseif k == "LowHealthBtn" then e.Text = T.LowHealthBtn..(_G_settings.LowHealthFocus and T.ON or T.OFF)
+        elseif k == "Crosshair" then e.Text = T.Crosshair..(_G_settings.CustomCrosshair and T.ON or T.OFF)
+        elseif k == "AutoParryBtn" then e.Text = T.AutoParryBtn..(_G_settings.AutoParry and T.ON or T.OFF)
+        elseif k == "AntiParryBtn" then e.Text = T.AntiParryBtn..(_G_settings.AntiParry and T.ON or T.OFF)
+        elseif k == "HitboxBtn" then e.Text = T.HitboxBtn..(_G_settings.HitboxEnabled and T.ON or T.OFF)
+        elseif k == "SpeedBtn" then e.Text = T.SpeedBtn..(_G_settings.SpeedBoost and T.ON or T.OFF)
+        elseif k == "JumpBtn" then e.Text = T.JumpBtn..(_G_settings.JumpBoost and T.ON or T.OFF)
+        elseif k == "KunaiBtn" then e.Text = T.KunaiBtn..(_G_settings.KunaiDodge and T.ON or T.OFF)
+        elseif k == "ESP_Enabled" then e.Text = T.ESP_Enabled..(_G_settings.ESP_Enabled and T.ON or T.OFF)
+        elseif k == "ESP_Boxes" then e.Text = T.ESP_Boxes..(_G_settings.ESP_Boxes and T.ON or T.OFF)
+        elseif k == "ESP_Tracers" then e.Text = T.ESP_Tracers..(_G_settings.ESP_Tracers and T.ON or T.OFF)
+        elseif k == "ESP_Arrows" then e.Text = T.ESP_Arrows..(_G_settings.ESP_Arrows and T.ON or T.OFF)
+        elseif k == "AutoFastRespawnBtn" then e.Text = T.AutoFastRespawnBtn..(_G_settings.AutoFastRespawn and T.ON or T.OFF)
+        elseif k == "RightClickAimBtn" then e.Text = T.RightClickAimBtn..(_G_settings.RightClickAim and T.ON or T.OFF)
+        elseif k == "AimAtBotsBtn" then e.Text = T.AimAtBotsBtn..(_G_settings.AimAtBots and T.ON or T.OFF)
+        elseif k == "ESP_OnBotsBtn" then e.Text = T.ESP_OnBotsBtn..(_G_settings.ESP_OnBots and T.ON or T.OFF)
+        elseif k == "CheckTheBotBtn" then e.Text = T.CheckTheBotBtn..(_G_settings.CheckTheBot and T.ON or T.OFF)
+        elseif k == "CustomJoyBtn" then e.Text = T.CustomJoyBtn..(_G_settings.CustomJoystick and T.ON or T.OFF)
+        elseif k == "AntiBearTrapBtn" then e.Text = T.AntiBearTrapBtn..(_G_settings.AntiBearTrap and T.ON or T.OFF)
+        elseif k == "AntiGrenadeBtn" then e.Text = T.AntiGrenadeBtn..(_G_settings.AntiGrenade and T.ON or T.OFF)
+        elseif k == "AntiMolotovBtn" then e.Text = T.AntiMolotovBtn..(_G_settings.AntiMolotov and T.ON or T.OFF)
+        elseif k == "AntiC4Btn" then e.Text = T.AntiC4Btn..(_G_settings.AntiC4 and T.ON or T.OFF)
+        elseif e:IsA("TextLabel") or e:IsA("TextButton") then e.Text = T[k] or e.Text end
+    end
+    if UI_Inputs.MaxD then UI_Inputs.MaxD.Text = tostring(_G_settings.MaxDist) end
+    if UI_Inputs.FOVInp then UI_Inputs.FOVInp.Text = tostring(_G_settings.FOV) end
+    if UI_Inputs.Pred then UI_Inputs.Pred.Text = tostring(_G_settings.Prediction) end
+    if UI_Inputs.AutoPredBase then UI_Inputs.AutoPredBase.Text = tostring(_G_settings.AutoPredBase) end
+    if UI_Inputs.DistThreshold then UI_Inputs.DistThreshold.Text = tostring(_G_settings.DistThreshold) end
+    if UI_Inputs.CloseMult then UI_Inputs.CloseMult.Text = tostring(_G_settings.CloseMult) end
+    if UI_Inputs.FarMult then UI_Inputs.FarMult.Text = tostring(_G_settings.FarMult) end
+    if UI_Inputs.VerticalStrength then UI_Inputs.VerticalStrength.Text = tostring(_G_settings.VerticalStrength) end
+    if UI_Inputs.Smooth then UI_Inputs.Smooth.Text = tostring(_G_settings.Smoothness) end
+    if UI_Inputs.AutoParryDist then UI_Inputs.AutoParryDist.Text = tostring(_G_settings.AutoParryDist) end
+    if UI_Inputs.AntiParryDist then UI_Inputs.AntiParryDist.Text = tostring(_G_settings.AntiParryDist) end
+    if UI_Inputs.HitboxSize then UI_Inputs.HitboxSize.Text = tostring(_G_settings.HitboxSize) end
+    
+    CrosshairCenter.Visible = _G_settings.CustomCrosshair
+    TweenService:Create(CrosshairCenter, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, 0, 0.5, _G_settings.CrosshairOffsetY)}):Play()
+
+    if not _G_settings.CustomCrosshair then game:GetService("UserInputService").MouseIconEnabled = true end
+    if FOVCircle then FOVCircle.Visible = (_G_settings.Enabled and not _G_settings.HideFOV) end
+    FPSDisplay.Visible = _G_settings.ShowFPSCounter
+    UpdateAimbotToggleButton()
+end
+
+local function FadeUI(element, show)
+    local targetAlpha = show and 0 or 1
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    if show then element.Visible = true end
+    if element:IsA("Frame") or element:IsA("TextButton") then TweenService:Create(element, ti, {BackgroundTransparency = targetAlpha}):Play() end
+    if element:IsA("TextButton") then TweenService:Create(element, ti, {TextTransparency = targetAlpha}):Play() end
+    for _, v in pairs(element:GetDescendants()) do
+        if v:IsA("UIStroke") then TweenService:Create(v, ti, {Transparency = targetAlpha}):Play()
+        elseif v:IsA("ImageLabel") then TweenService:Create(v, ti, {ImageTransparency = show and 0.6 or 1}):Play()
+        elseif v:IsA("TextLabel") then TweenService:Create(v, ti, {TextTransparency = targetAlpha}):Play()
+        elseif v:IsA("TextBox") then TweenService:Create(v, ti, {BackgroundTransparency = targetAlpha, TextTransparency = targetAlpha}):Play() end
+    end
+    if not show then task.delay(0.3, function() if not (_G_settings.UsePrediction and _G_settings.AutoPred) then element.Visible = false end end) end
+end
+
+local function UpdateDevModePred() 
+    FadeUI(UI_Elements.Pred.Parent, _G_settings.UsePrediction)
+    FadeUI(UI_Elements.AutoPredBtn, _G_settings.UsePrediction)
+    local showAuto = _G_settings.UsePrediction and _G_settings.AutoPred
+    FadeUI(UI_Elements.AutoPredBase.Parent, showAuto)
+    FadeUI(UI_Elements.DistThreshold.Parent, showAuto)
+    FadeUI(UI_Elements.CloseMult.Parent, showAuto)
+    FadeUI(UI_Elements.FarMult.Parent, showAuto)
+    FadeUI(UI_Elements.VerticalStrength.Parent, showAuto)
+end
+
+local function RefreshPlayerList()
+    for _, child in pairs(PlayerListP:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+    local T = Translations[CurrentLang]
+    local backBtn = Instance.new("TextButton", PlayerListP)
+    backBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+    backBtn.TextColor3 = Color3.new(1,1,1); backBtn.Font = "GothamBold"
+    backBtn.TextSize = 10; backBtn.ZIndex = 102; backBtn.Text = T.Back or "Back"; Instance.new("UICorner", backBtn); ApplyScaryTexture(backBtn)
+    ApplyButtonEffects(backBtn)
+    backBtn.MouseButton1Click:Connect(function() PlayerListP.Visible = false; AimP.Visible = true end)
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= lp then
+            local isIgnored = _G_settings.IgnoredPlayers[p.Name] or false
+            local b = Instance.new("TextButton", PlayerListP)
+            b.BackgroundColor3 = Color3.fromRGB(35,35,35)
+            b.TextColor3 = isIgnored and Color3.new(1,0.3,0.3) or Color3.new(0.3,1,0.3)
+            b.Text = p.Name .. (isIgnored and " [Ignored]" or " [Targeted]"); b.Font = "GothamBold"; b.TextSize = 10
+            b.ZIndex = 102
+            Instance.new("UICorner", b); ApplyScaryTexture(b)
+            ApplyButtonEffects(b)
+            b.MouseButton1Click:Connect(function() _G_settings.IgnoredPlayers[p.Name] = not _G_settings.IgnoredPlayers[p.Name]; RefreshPlayerList() end)
+        end
+    end
+end
+
+local capabGrid = CapabP:FindFirstChildOfClass("UIGridLayout")
+if capabGrid then capabGrid:Destroy() end
+local CapabList = Instance.new("UIListLayout", CapabP)
+CapabList.Padding = UDim.new(0, 10); CapabList.HorizontalAlignment = Enum.HorizontalAlignment.Center; CapabList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function MakeAccordion(parent, titleText)
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, -10, 0, 40); container.BackgroundColor3 = Color3.fromRGB(20, 20, 20); container.ClipsDescendants = true; Instance.new("UICorner", container)
+    local stroke = Instance.new("UIStroke", container)
+    stroke.Color = Color3.fromRGB(255, 0, 0); stroke.Transparency = 0; stroke.Thickness = 1.5
+    ApplyScaryTexture(container)
+    local headerBtn = Instance.new("TextButton", container)
+    headerBtn.Size = UDim2.new(1, 0, 0, 40); headerBtn.BackgroundTransparency = 1
+    headerBtn.Text = "➡  " .. titleText
+    headerBtn.TextColor3 = Color3.new(1, 0.2, 0.2); headerBtn.Font = "GothamBold"; headerBtn.TextSize = 14
+    headerBtn.TextXAlignment = Enum.TextXAlignment.Left; headerBtn.ZIndex = 105
+    local padding = Instance.new("UIPadding", headerBtn)
+    padding.PaddingLeft = UDim.new(0, 15)
+    local contentHold = Instance.new("Frame", container)
+    contentHold.Size = UDim2.new(1, 0, 1, -40)
+    contentHold.Position = UDim2.new(0, 0, 0, 40)
+    contentHold.BackgroundTransparency = 1
+    local grid = Instance.new("UIGridLayout", contentHold)
+    grid.CellSize = UDim2.new(0, 245, 0, 40)
+    grid.CellPadding = UDim2.new(0, 10, 0, 10)
+    grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    local isOpen = false
+    headerBtn.MouseButton1Click:Connect(function()
+        ClickSound:Play(); isOpen = not isOpen
+        if isOpen then headerBtn.Text = "⬇  " .. titleText; local contentHeight = grid.AbsoluteContentSize.Y + 20; TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -10, 0, 40 + contentHeight)}):Play()
+        else headerBtn.Text = "➡  " .. titleText; TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -10, 0, 40)}):Play() end
+    end)
+    
+    grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() if isOpen then local contentHeight = grid.AbsoluteContentSize.Y + 20; container.Size = UDim2.new(1, -10, 0, 40 + contentHeight) end end)
+    return contentHold
+end
+
+local ESPContent = MakeAccordion(CapabP, "ESP (VISUALS)")
+local BtnESP = NewBtn("ESP_Enabled", ESPContent, function() _G_settings.ESP_Enabled = not _G_settings.ESP_Enabled; Refresh() end)
+local BtnBoxes = NewBtn("ESP_Boxes", ESPContent, function() _G_settings.ESP_Boxes = not _G_settings.ESP_Boxes; Refresh() end)
+local BtnTracers = NewBtn("ESP_Tracers", ESPContent, function() _G_settings.ESP_Tracers = not _G_settings.ESP_Tracers; Refresh() end)
+local BtnArrows = NewBtn("ESP_Arrows", ESPContent, function() _G_settings.ESP_Arrows = not _G_settings.ESP_Arrows; Refresh() end)
+if not isMainGame then
+    local BtnESPOnBots = NewBtn("ESP_OnBotsBtn", ESPContent, function() _G_settings.ESP_OnBots = not _G_settings.ESP_OnBots; Refresh() end)
+    local BtnCheckTheBot = NewBtn("CheckTheBotBtn", ESPContent, function() _G_settings.CheckTheBot = not _G_settings.CheckTheBot; Refresh() end)
+    table.insert(RedRGBButtons, BtnESPOnBots)
+    table.insert(RedRGBButtons, BtnCheckTheBot)
+end
+table.insert(RedRGBButtons, BtnESP); table.insert(RedRGBButtons, BtnBoxes); table.insert(RedRGBButtons, BtnTracers); table.insert(RedRGBButtons, BtnArrows)
+
+if isMainGame then
+    local ParryContent = MakeAccordion(CapabP, "PARRY")
+    local BtnAutoParry = NewBtn("AutoParryBtn", ParryContent, function() _G_settings.AutoParry = not _G_settings.AutoParry; Refresh() end)
+    NewInp("AutoParryDist", _G_settings.AutoParryDist, ParryContent, function(v) local val = tonumber(v) or 18; _G_settings.AutoParryDist = math.clamp(val, 1, 20); if UI_Inputs.AutoParryDist then UI_Inputs.AutoParryDist.Text = tostring(_G_settings.AutoParryDist) end end)
+    local BtnAntiParry = NewBtn("AntiParryBtn", ParryContent, function() _G_settings.AntiParry = not _G_settings.AntiParry; Refresh() end)
+    NewInp("AntiParryDist", _G_settings.AntiParryDist, ParryContent, function(v) local val = tonumber(v) or 15; _G_settings.AntiParryDist = math.clamp(val, 1, 20); if UI_Inputs.AntiParryDist then UI_Inputs.AntiParryDist.Text = tostring(_G_settings.AntiParryDist) end end)
+    table.insert(RedRGBButtons, BtnAutoParry); table.insert(RedRGBButtons, BtnAntiParry)
+end
+
+if not isMainGame then
+    local HitboxContent = MakeAccordion(CapabP, "ATTACK")
+    local BtnHitbox = NewBtn("HitboxBtn", HitboxContent, function() 
+        _G_settings.HitboxEnabled = not _G_settings.HitboxEnabled
+        Refresh() 
+    end)
+
+    NewInp("HitboxSize", _G_settings.HitboxSize, HitboxContent, function(v) 
+        local val = tonumber(v) or 20
+        _G_settings.HitboxSize = math.clamp(val, 1, 20)
+        if UI_Inputs.HitboxSize then 
+            UI_Inputs.HitboxSize.Text = tostring(_G_settings.HitboxSize) 
+        end 
+    end)
+    table.insert(RedRGBButtons, BtnHitbox)
+end
+
+local PlayerContent = MakeAccordion(CapabP, "PLAYER")
+
+local SpeedFrame = Instance.new("Frame", PlayerContent)
+SpeedFrame.BackgroundTransparency = 1
+local BtnSpeed = NewBtn("SpeedBtn", SpeedFrame, function() _G_settings.SpeedBoost = not _G_settings.SpeedBoost; Refresh() end)
+BtnSpeed.Size = UDim2.new(1, 0, 0.6, 0)
+local SpeedDesc = Instance.new("TextLabel", SpeedFrame)
+SpeedDesc.Size = UDim2.new(1, 0, 0.4, 0)
+SpeedDesc.Position = UDim2.new(0, 0, 0.6, 0); SpeedDesc.BackgroundTransparency = 1; SpeedDesc.Text = "30% Increase"
+SpeedDesc.TextColor3 = Color3.fromRGB(180, 30, 30)
+SpeedDesc.TextTransparency = 0; SpeedDesc.TextStrokeTransparency = 0.4; SpeedDesc.TextStrokeColor3 = Color3.new(0,0,0)
+SpeedDesc.Font = "GothamBold"
+SpeedDesc.TextSize = 11
+SpeedDesc.ZIndex = 1005 
+
+local JumpFrame = Instance.new("Frame", PlayerContent)
+JumpFrame.BackgroundTransparency = 1
+local BtnJump = NewBtn("JumpBtn", JumpFrame, function() _G_settings.JumpBoost = not _G_settings.JumpBoost; Refresh() end)
+BtnJump.Size = UDim2.new(1, 0, 0.6, 0)
+local JumpDesc = Instance.new("TextLabel", JumpFrame)
+JumpDesc.Size = UDim2.new(1, 0, 0.4, 0)
+JumpDesc.Position = UDim2.new(0, 0, 0.6, 0); JumpDesc.BackgroundTransparency = 1; JumpDesc.Text = "30% Increase"
+JumpDesc.TextColor3 = Color3.fromRGB(180, 30, 30)
+JumpDesc.TextTransparency = 0; JumpDesc.TextStrokeTransparency = 0.4; JumpDesc.TextStrokeColor3 = Color3.new(0,0,0)
+JumpDesc.Font = "GothamBold"
+JumpDesc.TextSize = 11
+JumpDesc.ZIndex = 1005
+
+table.insert(RedRGBButtons, BtnSpeed)
+table.insert(RedRGBButtons, BtnJump)
+
+if isMainGame then
+    local KunaiFrame = Instance.new("Frame", PlayerContent)
+    KunaiFrame.BackgroundTransparency = 1
+    local BtnKunai = NewBtn("KunaiBtn", KunaiFrame, function() _G_settings.KunaiDodge = not _G_settings.KunaiDodge; Refresh() end)
+    BtnKunai.Size = UDim2.new(1, 0, 0.6, 0)
+    local KunaiDesc = Instance.new("TextLabel", KunaiFrame)
+    KunaiDesc.Size = UDim2.new(1, 0, 0.4, 0)
+    KunaiDesc.Position = UDim2.new(0, 0, 0.6, 0); KunaiDesc.BackgroundTransparency = 1; KunaiDesc.Text = "Works 50%"
+    KunaiDesc.TextColor3 = Color3.fromRGB(180, 30, 30)
+    KunaiDesc.TextTransparency = 0; KunaiDesc.TextStrokeTransparency = 0.4
+    KunaiDesc.TextStrokeColor3 = Color3.new(0,0,0)
+    KunaiDesc.Font = "GothamBold"
+    KunaiDesc.TextSize = 11
+    KunaiDesc.ZIndex = 1005 
+    table.insert(RedRGBButtons, BtnKunai)
+end
+
+if isMainGame then
+    local MiscContent = MakeAccordion(CapabP, "MISC (RANDOM)")
+    local BtnFastRespawn = NewBtn("AutoFastRespawnBtn", MiscContent, function() _G_settings.AutoFastRespawn = not _G_settings.AutoFastRespawn; Refresh() end)
+    table.insert(RedRGBButtons, BtnFastRespawn)
+end
+
+-- =============== ANTIS SECTION (Only in Combat Warriors) ===============
+if isMainGame then
+    local AntisContent = MakeAccordion(CapabP, "ANTIS")
+    
+    local BtnAntiBearTrap = NewBtn("AntiBearTrapBtn", AntisContent, function()
+        _G_settings.AntiBearTrap = not _G_settings.AntiBearTrap
+        if _G_settings.AntiBearTrap then StartAntiBearTrap() else StopAnti("BearTrap") end
+        Refresh()
+    end)
+    
+    local BtnAntiGrenade = NewBtn("AntiGrenadeBtn", AntisContent, function()
+        _G_settings.AntiGrenade = not _G_settings.AntiGrenade
+        if _G_settings.AntiGrenade then StartAntiGrenade() else StopAnti("Grenade") end
+        Refresh()
+    end)
+    
+    local BtnAntiMolotov = NewBtn("AntiMolotovBtn", AntisContent, function()
+        _G_settings.AntiMolotov = not _G_settings.AntiMolotov
+        if _G_settings.AntiMolotov then StartAntiMolotov() else StopAnti("Molotov") end
+        Refresh()
+    end)
+    
+    local BtnAntiC4 = NewBtn("AntiC4Btn", AntisContent, function()
+        _G_settings.AntiC4 = not _G_settings.AntiC4
+        if _G_settings.AntiC4 then StartAntiC4() else StopAnti("C4") end
+        Refresh()
+    end)
+
+    table.insert(RedRGBButtons, BtnAntiBearTrap)
+    table.insert(RedRGBButtons, BtnAntiGrenade)
+    table.insert(RedRGBButtons, BtnAntiMolotov)
+    table.insert(RedRGBButtons, BtnAntiC4)
+end
+
+NewBtn("AimBtn", AimP, function() _G_settings.Enabled = not _G_settings.Enabled
+    if FOVCircle then FOVCircle.Visible = (_G_settings.Enabled and not _G_settings.HideFOV) end; Refresh() end)
+
+local BtnRightClickAim = NewBtn("RightClickAimBtn", AimP, function() _G_settings.RightClickAim = not _G_settings.RightClickAim; Refresh() end)
+local pcLabel = Instance.new("TextLabel", BtnRightClickAim)
+pcLabel.Size = UDim2.new(0, 30, 0, 10); pcLabel.Position = UDim2.new(1, -30, 0, 2); pcLabel.BackgroundTransparency = 1; pcLabel.Text = "for pc"
+pcLabel.TextColor3 = Color3.fromRGB(200, 50, 50); pcLabel.Font = "GothamBold"; pcLabel.TextSize = 8
+pcLabel.ZIndex = 103
+
+if not isMainGame then
+    NewBtn("AimAtBotsBtn", AimP, function() _G_settings.AimAtBots = not _G_settings.AimAtBots; Refresh() end)
+end
+
+NewBtn("TargetBtn", AimP, function() _G_settings.TargetPart = _G_settings.TargetPart == "Head" and "HumanoidRootPart" or "Head"; Refresh() end)
+NewBtn("Crosshair", AimP, function() _G_settings.CustomCrosshair = not _G_settings.CustomCrosshair; CrosshairCenter.Visible = _G_settings.CustomCrosshair; if not _G_settings.CustomCrosshair then game:GetService("UserInputService").MouseIconEnabled = true end; Refresh() end)
+NewBtn("LowHealthBtn", AimP, function() _G_settings.LowHealthFocus = not _G_settings.LowHealthFocus; Refresh() end)
+NewBtn("PlayerListBtn", AimP, function() AimP.Visible = false; PlayerListP.Visible = true; RefreshPlayerList() end)
+NewBtn("WallBtn", AimP, function() _G_settings.WallCheck = not _G_settings.WallCheck; Refresh() end)
+
+local BtnHideFOV = NewBtn("HideFOV", AimP, function() _G_settings.HideFOV = not _G_settings.HideFOV
+if _G_settings.Enabled and FOVCircle then FOVCircle.Visible = not _G_settings.HideFOV end; Refresh() end)
+
+NewInp("MaxD", 30, AimP, function(v) _G_settings.MaxDist = tonumber(v) or 30 end)
+NewInp("FOVInp", 150, AimP, function(v) _G_settings.FOV = tonumber(v) or 150; if FOVCircle then FOVCircle.Radius = _G_settings.FOV end end)
+
+NewBtn("UsePredBtn", AimP, function() _G_settings.UsePrediction = not _G_settings.UsePrediction; UpdateDevModePred(); Refresh() end)
+NewInp("Pred", 0.05, AimP, function(v) _G_settings.Prediction = tonumber(v) or 0.05 end)
+NewBtn("AutoPredBtn", AimP, function() _G_settings.AutoPred = not _G_settings.AutoPred; UpdateDevModePred(); Refresh() end)
+NewInp("AutoPredBase", 0.1, AimP, function(v) _G_settings.AutoPredBase = tonumber(v) or 0.1 end)
+NewInp("DistThreshold", 20, AimP, function(v) _G_settings.DistThreshold = tonumber(v) or 20 end)
+NewInp("CloseMult", 0.005, AimP, function(v) _G_settings.CloseMult = tonumber(v) or 0.005 end)
+NewInp("FarMult", 0.001, AimP, function(v) _G_settings.FarMult = tonumber(v) or 0.001 end)
+NewInp("VerticalStrength", 0.5, AimP, function(v) _G_settings.VerticalStrength = tonumber(v) or 0.5 end)
+NewInp("Smooth", 0, AimP, function(v) _G_settings.Smoothness = tonumber(v) or 0 end)
+
+local function HideInitial(obj)
+    obj.Visible = false
+    if obj:IsA("Frame") then obj.BackgroundTransparency = 1 end; if obj:IsA("TextButton") then obj.BackgroundTransparency = 1
+    obj.TextTransparency = 1 end
+    for _, v in pairs(obj:GetDescendants()) do if v:IsA("UIStroke") then v.Transparency=1 elseif v:IsA("ImageLabel") then v.ImageTransparency=1 elseif v:IsA("TextLabel") or v:IsA("TextBox") then v.TextTransparency=1 if v:IsA("TextBox") then v.BackgroundTransparency=1 end end end
+end
+HideInitial(UI_Elements.Pred.Parent)
+HideInitial(UI_Elements.AutoPredBtn); HideInitial(UI_Elements.AutoPredBase.Parent); HideInitial(UI_Elements.DistThreshold.Parent); HideInitial(UI_Elements.CloseMult.Parent); HideInitial(UI_Elements.FarMult.Parent); HideInitial(UI_Elements.VerticalStrength.Parent)
+
+-- ==========================================
+-- [[ APPLY LOADED SETTINGS / FIX SAVING BUGS ]]
+-- ==========================================
+local function ApplyLoadedSettings()
+    if isMainGame then
+        if _G_settings.AntiBearTrap then StartAntiBearTrap() else StopAnti("BearTrap") end
+        if _G_settings.AntiGrenade then StartAntiGrenade() else StopAnti("Grenade") end
+        if _G_settings.AntiMolotov then StartAntiMolotov() else StopAnti("Molotov") end
+        if _G_settings.AntiC4 then StartAntiC4() else StopAnti("C4") end
+        isParrying = false
+        parryCooldown = false
+        _G_settings.HitboxEnabled = false
+    end
+    UpdateDevModePred()
+    UpdateGrayMovementState()
+    Refresh()
+end
+
+local currentProfileName = "acrocan0 aim"
+NewInp("ProfileName", "acrocan0 aim", SaveP, function(v) currentProfileName = tostring(v) end)
+NewBtn("SaveProfile", SaveP, function() SaveSettings(currentProfileName) end)
+local ProfileButtons = {}
+RefreshProfilesUI = function()
+    for _, btn in pairs(ProfileButtons) do btn:Destroy() end
+    ProfileButtons = {}
+    for i, prof in ipairs(SavedProfilesList) do
+        local container = Instance.new("Frame", SaveP)
+        container.BackgroundTransparency = 1; container.Size = UDim2.new(1, 0, 1, 0); table.insert(ProfileButtons, container) 
+        local loadBtn = Instance.new("TextButton", container)
+        loadBtn.Size = UDim2.new(0.75, 0, 1, 0); loadBtn.BackgroundColor3 = Color3.fromRGB(15, 60, 15); loadBtn.TextColor3 = Color3.new(1,1,1); loadBtn.Font = "GothamBold"; loadBtn.TextSize = 10
+        loadBtn.ZIndex = 102; loadBtn.Text = "Load: " .. prof
+        Instance.new("UICorner", loadBtn); ApplyScaryTexture(loadBtn)
+        local s1 = Instance.new("UIStroke", loadBtn); s1.Thickness = 0.5; s1.Color = ScaryEdgeColor
+        ApplyButtonEffects(loadBtn)
+        loadBtn.MouseButton1Click:Connect(function() LoadSettings(prof, false); ApplyLoadedSettings() end)
+        if prof == "acrocan0 aim" then
+            local lockIcon = Instance.new("TextLabel", container)
+            lockIcon.Size = UDim2.new(0.2, 0, 1, 0); lockIcon.Position = UDim2.new(0.8, 0, 0, 0); lockIcon.BackgroundTransparency = 1; lockIcon.Text = "🔒"
+            lockIcon.TextSize = 16; lockIcon.ZIndex = 102
+        else
+            local delBtn = Instance.new("TextButton", container)
+            delBtn.Size = UDim2.new(0.2, 0, 1, 0); delBtn.Position = UDim2.new(0.8, 0, 0, 0); delBtn.BackgroundColor3 = Color3.fromRGB(80, 10, 10)
+            delBtn.TextColor3 = Color3.new(1, 0.2, 0.2); delBtn.Font = "GothamBold"; delBtn.TextSize = 12; delBtn.ZIndex = 102
+            delBtn.Text = "X"
+            Instance.new("UICorner", delBtn); ApplyScaryTexture(delBtn)
+            local s2 = Instance.new("UIStroke", delBtn); s2.Thickness = 0.5; s2.Color = ScaryEdgeColor
+            ApplyButtonEffects(delBtn)
+            delBtn.MouseButton1Click:Connect(function() table.remove(SavedProfilesList, i); SaveRegistry(); if delfile then pcall(function() delfile(GetProfileFilename(prof)) end) end; ShowModeMsg("Profile Deleted: " .. prof); RefreshProfilesUI() end)
+        end
+    end
+end
+
+local EditorGui = Instance.new("ScreenGui", pgui)
+EditorGui.Name = "AcroCrosshairEditor"; EditorGui.IgnoreGuiInset = true; EditorGui.ResetOnSpawn = false; EditorGui.DisplayOrder = 2147483648
+local EditorMain = Instance.new("Frame", EditorGui)
+EditorMain.Size = UDim2.new(0, 200, 0, 250); EditorMain.AnchorPoint = Vector2.new(1, 0.5); EditorMain.Position = UDim2.new(1, -20, 0.5, 0)
+EditorMain.BackgroundColor3 = Color3.fromRGB(15, 15, 15); EditorMain.Visible = false; EditorMain.Active = true; EditorMain.Draggable = false; Instance.new("UICorner", EditorMain)
+local EdStroke = Instance.new("UIStroke", EditorMain); EdStroke.Thickness = 2; EdStroke.Color = ScaryEdgeColor; ApplyScaryTexture(EditorMain)
+local EdTitle = Instance.new("TextLabel", EditorMain)
+EdTitle.Size = UDim2.new(1, 0, 0, 30); EdTitle.BackgroundTransparency = 1; EdTitle.Text = "Edit Crosshair Y"; EdTitle.TextColor3 = ScaryEdgeColor; EdTitle.Font = "GothamBold"
+EdTitle.TextSize = 14
+local SliderContainer = Instance.new("Frame", EditorMain); SliderContainer.Size = UDim2.new(0, 40, 0, 150); SliderContainer.Position = UDim2.new(0.5, -20, 0.2, 0)
+SliderContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", SliderContainer); local SlStroke = Instance.new("UIStroke", SliderContainer)
+SlStroke.Color = Color3.fromRGB(100, 100, 100)
+local SliderLine = Instance.new("Frame", SliderContainer); SliderLine.Size = UDim2.new(1, 4, 0, 10)
+SliderLine.Position = UDim2.new(0, -2, 0.5, -5); SliderLine.BackgroundColor3 = ScaryEdgeColor; Instance.new("UICorner", SliderLine)
+local DoneBtn = Instance.new("TextButton", EditorMain)
+DoneBtn.Size = UDim2.new(0.4, 0, 0, 30); DoneBtn.Position = UDim2.new(0.05, 0, 0.85, 0); DoneBtn.BackgroundColor3 = Color3.fromRGB(0, 80, 0)
+DoneBtn.TextColor3 = Color3.new(1, 1, 1); DoneBtn.Text = "Done"; DoneBtn.Font = "GothamBold"; Instance.new("UICorner", DoneBtn); ApplyButtonEffects(DoneBtn)
+local ReturnBtn = Instance.new("TextButton", EditorMain)
+ReturnBtn.Size = UDim2.new(0.4, 0, 0, 30); ReturnBtn.Position = UDim2.new(0.55, 0, 0.85, 0); ReturnBtn.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+ReturnBtn.TextColor3 = Color3.new(1, 1, 1); ReturnBtn.Text = "Return"; ReturnBtn.Font = "GothamBold"; Instance.new("UICorner", ReturnBtn)
+ApplyButtonEffects(ReturnBtn)
+
+local isDraggingSlider = false
+SliderContainer.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isDraggingSlider = true end end)
+SliderLine.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isDraggingSlider = true end end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isDraggingSlider = false end end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isDraggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and EditorMain.Visible then
+        local relativeY = input.Position.Y - SliderContainer.AbsolutePosition.Y
+        local clampedY = math.clamp(relativeY, 0, SliderContainer.AbsoluteSize.Y)
+        local percentage = clampedY / SliderContainer.AbsoluteSize.Y
+        
+        TweenService:Create(SliderLine, TweenInfo.new(0.1), {Position = UDim2.new(0, -2, percentage, -5)}):Play()
+        
+        local offset = (percentage - 0.5) * 500
+        _G_settings.CrosshairOffsetY = offset
+        
+        TweenService:Create(CrosshairCenter, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, 0, 0.5, offset)}):Play()
+    end
+end)
+
+local function OpenCrosshairEditor()
+    if isHubOpen then ToggleMainHub() end 
+    
+    _G_settings.CustomCrosshair = true 
+    Refresh()
+    
+    local percentage = (_G_settings.CrosshairOffsetY / 500) + 0.5
+    percentage = math.clamp(percentage, 0, 1)
+    SliderLine.Position = UDim2.new(0, -2, percentage, -5)
+    
+    EditorMain.Visible = true
+end
+
+DoneBtn.MouseButton1Click:Connect(function() EditorMain.Visible = false end)
+ReturnBtn.MouseButton1Click:Connect(function() EditorMain.Visible = false; ToggleMainHub() end)
+
+-- ==========================================
+-- [[ Joystick Editor Gui Setup ]]
+-- ==========================================
+local JoyEditorGui = Instance.new("ScreenGui", pgui)
+JoyEditorGui.Name = "AcroJoystickEditor"
+JoyEditorGui.IgnoreGuiInset = true
+JoyEditorGui.ResetOnSpawn = false
+JoyEditorGui.DisplayOrder = 2147483648
+
+local JoyEditorMain = Instance.new("Frame", JoyEditorGui)
+JoyEditorMain.Size = UDim2.new(0, 250, 0, 300)
+JoyEditorMain.AnchorPoint = Vector2.new(1, 0.5)
+JoyEditorMain.Position = UDim2.new(1, -20, 0.5, 0)
+JoyEditorMain.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+JoyEditorMain.Visible = false
+JoyEditorMain.Active = true
+Instance.new("UICorner", JoyEditorMain)
+local JoyEdStroke = Instance.new("UIStroke", JoyEditorMain)
+JoyEdStroke.Thickness = 2
+JoyEdStroke.Color = ScaryEdgeColor
+ApplyScaryTexture(JoyEditorMain)
+
+local JoyEdTitle = Instance.new("TextLabel", JoyEditorMain)
+JoyEdTitle.Size = UDim2.new(1, 0, 0, 30)
+JoyEdTitle.BackgroundTransparency = 1
+JoyEdTitle.Text = "Edit Red Joystick"
+JoyEdTitle.TextColor3 = ScaryEdgeColor
+JoyEdTitle.Font = "GothamBold"
+JoyEdTitle.TextSize = 14
+
+local ActiveJoySlider = false 
+
+local function CreateJoySlider(name, yPos, min, max, startVal, callback)
+    local label = Instance.new("TextLabel", JoyEditorMain)
+    label.Size = UDim2.new(1, -20, 0, 20)
+    label.Position = UDim2.new(0, 10, 0, yPos)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. math.floor(startVal)
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = "GothamBold"
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local container = Instance.new("Frame", JoyEditorMain)
+    container.Size = UDim2.new(1, -20, 0, 20)
+    container.Position = UDim2.new(0, 10, 0, yPos + 20)
+    container.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", container)
+   
+     local stroke = Instance.new("UIStroke", container)
+    stroke.Color = Color3.fromRGB(100, 100, 100)
+
+    local fill = Instance.new("Frame", container)
+    local perc = (startVal - min) / (max - min)
+    fill.Size = UDim2.new(perc, 0, 1, 0)
+    fill.BackgroundColor3 = ScaryEdgeColor
+    Instance.new("UICorner", fill)
+
+    local isDragging = false
+    container.InputBegan:Connect(function(input)
+        if not ActiveJoySlider and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then 
+            isDragging = true 
+            ActiveJoySlider = true
+        end
+    end)
+    fill.InputBegan:Connect(function(input)
+        if not ActiveJoySlider and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then 
+            isDragging = true 
+            ActiveJoySlider = true
+        end
+    end)
+ 
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+            if isDragging then
+                isDragging = false 
+                ActiveJoySlider = false
+            end
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and JoyEditorMain.Visible then
+            local relativeX = input.Position.X - container.AbsolutePosition.X
+            local clampedX = math.clamp(relativeX, 0, container.AbsoluteSize.X)
+            local p = clampedX / container.AbsoluteSize.X
+            fill.Size = UDim2.new(p, 0, 1, 0)
+            local val = min + (max - min) * p
+            label.Text = name .. ": " .. math.floor(val)
+            callback(val)
+        end
+    end)
+
+    return function(newVal)
+        local p = (newVal - min) / (max - min)
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        label.Text = name .. ": " .. math.floor(newVal)
+    end
+end
+
+local UpdateSizeSlider = CreateJoySlider("Size", 40, 50, 300, _G_settings.JoySize, function(val)
+    _G_settings.JoySize = val
+    ApplyJoystickSettings()
+end)
+local UpdatePosXSlider = CreateJoySlider("X Position", 90, 0, 500, _G_settings.JoyPosX, function(val)
+    _G_settings.JoyPosX = val
+    ApplyJoystickSettings()
+end)
+local UpdatePosYSlider = CreateJoySlider("Y Position", 140, -300, 300, _G_settings.JoyPosY, function(val)
+    _G_settings.JoyPosY = val
+    ApplyJoystickSettings()
+end)
+
+local JoyDoneBtn = Instance.new("TextButton", JoyEditorMain)
+JoyDoneBtn.Size = UDim2.new(0.4, 0, 0, 30)
+JoyDoneBtn.Position = UDim2.new(0.05, 0, 0.85, 0)
+JoyDoneBtn.BackgroundColor3 = Color3.fromRGB(0, 80, 0)
+JoyDoneBtn.TextColor3 = Color3.new(1, 1, 1)
+JoyDoneBtn.Text = "Done"
+JoyDoneBtn.Font = "GothamBold"
+Instance.new("UICorner", JoyDoneBtn)
+ApplyButtonEffects(JoyDoneBtn)
+
+local JoyReturnBtn = Instance.new("TextButton", JoyEditorMain)
+JoyReturnBtn.Size = UDim2.new(0.4, 0, 0, 30)
+JoyReturnBtn.Position = UDim2.new(0.55, 0, 0.85, 0)
+JoyReturnBtn.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+JoyReturnBtn.TextColor3 = Color3.new(1, 1, 1)
+JoyReturnBtn.Text = "Return"
+JoyReturnBtn.Font = "GothamBold"
+Instance.new("UICorner", JoyReturnBtn)
+ApplyButtonEffects(JoyReturnBtn)
+
+local function OpenJoyEditor()
+    if isHubOpen then ToggleMainHub() end 
+    _G_settings.CustomJoystick = true
+    UpdateGrayMovementState()
+    Refresh()
+    
+    UpdateSizeSlider(_G_settings.JoySize)
+    UpdatePosXSlider(_G_settings.JoyPosX)
+    UpdatePosYSlider(_G_settings.JoyPosY)
+    
+    JoyEditorMain.Visible = true
+end
+
+JoyDoneBtn.MouseButton1Click:Connect(function() JoyEditorMain.Visible = false; ActiveJoySlider = false end)
+JoyReturnBtn.MouseButton1Click:Connect(function() JoyEditorMain.Visible = false; ToggleMainHub(); ActiveJoySlider = false end)
+
+-- ==========================================
+-- [[ Settings / System Configuration ]]
+-- ==========================================
+local sysGrid = SysP:FindFirstChildOfClass("UIGridLayout")
+if sysGrid then sysGrid:Destroy() end
+local SysList = Instance.new("UIListLayout", SysP)
+SysList.Padding = UDim.new(0, 10)
+SysList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SysList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local SettingsContent = MakeAccordion(SysP, "SETTINGS")
+NewBtn("CrosshairEditBtn", SettingsContent, function() OpenCrosshairEditor() end)
+NewBtn("RedJoystickEditBtn", SettingsContent, function() OpenJoyEditor() end)
+NewBtn("CustomJoyBtn", SettingsContent, function() _G_settings.CustomJoystick = not _G_settings.CustomJoystick; UpdateGrayMovementState(); Refresh() end) 
+
+local PerformanceContent = MakeAccordion(SysP, "PERFORMANCE")
+NewBtn("FPS", PerformanceContent, function() 
+    _G_settings.FPSUnlocked = not _G_settings.FPSUnlocked
+    if _G_settings.FPSUnlocked then if setfpscap then setfpscap(999) end ShowModeMsg("FPS Unlocked permanently") else if setfpscap then setfpscap(60) end ShowModeMsg("FPS Locked to 60") end
+    Refresh()
+end)
+
+NewBtn("ShowFPS", PerformanceContent, function() 
+    _G_settings.ShowFPSCounter = not _G_settings.ShowFPSCounter; FPSDisplay.Visible = _G_settings.ShowFPSCounter
+    Refresh() 
+end)
+
+local EffectConnection = nil
+NewBtn("NoFx", PerformanceContent, function() 
+    _G_settings.NoEffects = not _G_settings.NoEffects
+    if _G_settings.NoEffects then
+        ShowModeMsg("Performance Mode Enabled"); Lighting.GlobalShadows = false
+        for _, v in pairs(Lighting:GetChildren()) do if v:IsA("PostEffect") then v.Enabled = false end end
+        local function cleanEffects(v)
+            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then v:Destroy()
+            elseif v:IsA("BasePart") then if v.Parent and not v.Parent:FindFirstChild("Humanoid") then v.Material = Enum.Material.SmoothPlastic end
+            elseif (v:IsA("Texture") or v:IsA("Decal")) and v.Name ~= "face" then v:Destroy() end
+        end
+        for _, v in pairs(workspace:GetDescendants()) do cleanEffects(v) end
+        EffectConnection = workspace.DescendantAdded:Connect(function(v) if _G_settings.NoEffects then task.wait(); cleanEffects(v) end end)
+    else 
+        ShowModeMsg("Performance Mode Disabled (Restart Required)")
+        if EffectConnection then EffectConnection:Disconnect() end 
+    end
+    Refresh()
+end)
+
+local cl = Instance.new("TextLabel", CredP); cl.Size=UDim2.new(1,0,1,0); cl.BackgroundTransparency=1
+cl.TextColor3=Color3.new(1,1,1); cl.Text="Owner: acrocan0\nTikTok: @acrocan0"; cl.Font="GothamBold"; cl.ZIndex = 102
+
+if isAdmin then
+    local AdminWelcomeMsg = Instance.new("TextLabel", AdminP)
+    AdminWelcomeMsg.Size = UDim2.new(1, 0, 0, 40); AdminWelcomeMsg.BackgroundTransparency = 1; AdminWelcomeMsg.Text = "Welcome Admin Al_Julani! 👑\nYou have full control over the script here."
+    AdminWelcomeMsg.TextColor3 = ScaryEdgeColor; AdminWelcomeMsg.Font = "GothamBold"; AdminWelcomeMsg.TextSize = 10; AdminWelcomeMsg.ZIndex = 102
+    local targetBanUser = ""
+    NewInp("AdminBanInput", "Enter Username...", AdminP, function(v) targetBanUser = tostring(v) end)
+    NewBtn("BanUserBtn", AdminP, function()
+        if targetBanUser ~= "" then _G_settings.IgnoredPlayers[targetBanUser] = true; ShowModeMsg("User " .. targetBanUser .. " has been restricted locally!") else ShowModeMsg("Please enter a valid Username.") end
+    end)
+    UI_Elements.AdminBanInput.Text = "Username To Ban"
+    UI_Elements.BanUserBtn.Text = "Ban Player (Local)"
+end
+
+local function HideAllPages()
+    AimP.Visible = false; SaveP.Visible = false; SysP.Visible = false
+    CredP.Visible = false; CapabP.Visible = false; PlayerListP.Visible = false; CapabAlert.Visible = false
+    if AdminP then AdminP.Visible = false end
+end
+
+UI_Elements.Aim.MouseButton1Click:Connect(function() HideAllPages(); AimP.Visible=true end)
+UI_Elements.SaveTab.MouseButton1Click:Connect(function() HideAllPages(); SaveP.Visible=true end)
+UI_Elements.Sys.MouseButton1Click:Connect(function() HideAllPages(); SysP.Visible=true end)
+UI_Elements.Cred.MouseButton1Click:Connect(function() HideAllPages(); CredP.Visible=true end)
+if isAdmin then UI_Elements.Admin.MouseButton1Click:Connect(function() HideAllPages(); AdminP.Visible=true end) end
+UI_Elements.Capab.MouseButton1Click:Connect(function() HideAllPages(); if not hasSeenAlert then CapabAlert.Visible = true else CapabP.Visible = true end end)
+
+local ESP_Drawings = {}
+
+local function ClearESP(model)
+    if ESP_Drawings[model] then
+        ESP_Drawings[model].Box:Remove()
+        ESP_Drawings[model].Tracer:Remove()
+        ESP_Drawings[model].Arrow:Remove()
+        ESP_Drawings[model] = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    local cam = workspace.CurrentCamera
+    local myChar = lp.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+    for model, esp in pairs(ESP_Drawings) do
+        if not model or not model.Parent then ClearESP(model) end
+    end
+
+    for _, ent in ipairs(LiveTargets) do
+        local char = ent.model
+        if not char or not char:IsDescendantOf(workspace) then ClearESP(char); continue end
+        
+        if ent.isBot and not _G_settings.ESP_OnBots then ClearESP(char); continue end
+        if not ent.isBot and _G_settings.IgnoredPlayers[ent.name] then ClearESP(char); continue end
+
+        if not ESP_Drawings[char] and typeof(Drawing) == "table" then
+            pcall(function()
+                ESP_Drawings[char] = {Box = Drawing.new("Square"), Tracer = Drawing.new("Line"), Arrow = Drawing.new("Triangle")}
+                ESP_Drawings[char].Box.Thickness = 1.5
+                ESP_Drawings[char].Box.Filled = false
+                ESP_Drawings[char].Tracer.Thickness = 1.5
+                ESP_Drawings[char].Arrow.Thickness = 1
+                ESP_Drawings[char].Arrow.Filled = true
+            end)
+        end
+
+        local esp = ESP_Drawings[char]
+        if not esp then continue end
+        
+        local targetColor = Color3.new(1, 0, 0)
+        if not isMainGame and _G_settings.CheckTheBot and ent.isBot then targetColor = Color3.new(0, 1, 0) end
+        esp.Box.Color = targetColor
+        esp.Tracer.Color = targetColor; esp.Arrow.Color = targetColor
+
+        local isAlive = char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0
+
+        if _G_settings.ESP_Enabled and isAlive and myRoot then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position)
+                local dist = (myRoot.Position - hrp.Position).Magnitude
+
+                if onScreen then
+                    if _G_settings.ESP_Boxes then
+                        local top, _ = cam:WorldToViewportPoint((hrp.CFrame * CFrame.new(0, 3, 0)).Position)
+                        local bottom, _ = cam:WorldToViewportPoint((hrp.CFrame * CFrame.new(0, -3, 0)).Position)
+                        local height = math.abs(top.Y - bottom.Y)
+                        local width = height * 0.6
+                        esp.Box.Size = Vector2.new(width, height)
+                        esp.Box.Position = Vector2.new(screenPos.X - width / 2, screenPos.Y - height / 2)
+                        esp.Box.Visible = true
+                    else esp.Box.Visible = false end
+
+                    if _G_settings.ESP_Tracers then
+                        esp.Tracer.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+                        esp.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                        esp.Tracer.Visible = true
+                    else esp.Tracer.Visible = false end
+                else
+                    esp.Box.Visible = false
+                    esp.Tracer.Visible = false
+                end
+
+                if _G_settings.ESP_Arrows then
+                    local alpha = 1 - math.clamp((dist - 15) / 105, 0, 1) 
+                    if alpha > 0 then
+                        local center = cam.ViewportSize / 2
+                        local objSpace = cam.CFrame:PointToObjectSpace(hrp.Position)
+                        local dir = Vector2.new(objSpace.X, -objSpace.Y).Unit
+                        local radius = 150 
+                        local arrowPos = center + dir * radius
+                        local point1 = arrowPos + dir * 15
+                        local point2 = arrowPos - dir * 10 + Vector2.new(-dir.Y, dir.X) * 10
+                        local point3 = arrowPos - dir * 10 - Vector2.new(-dir.Y, dir.X) * 10
+                        esp.Arrow.PointA = point1
+                        esp.Arrow.PointB = point2; esp.Arrow.PointC = point3
+                        esp.Arrow.Transparency = alpha
+                        esp.Arrow.Visible = true
+                    else esp.Arrow.Visible = false end
+                else esp.Arrow.Visible = false end
+            else esp.Box.Visible = false
+                esp.Tracer.Visible = false; esp.Arrow.Visible = false end
+        else esp.Box.Visible = false
+            esp.Tracer.Visible = false; esp.Arrow.Visible = false end
+    end
+    
+    for model, esp in pairs(ESP_Drawings) do
+        local found = false
+        for _, ent in ipairs(LiveTargets) do if ent.model == model then found = true; break end end
+        if not found then esp.Box.Visible = false; esp.Tracer.Visible = false
+            esp.Arrow.Visible = false end
+    end
+end)
+
+local function StartSequence()
+    music:Play()
+    TweenService:Create(music, TweenInfo.new(1.5), {Volume = 1}):Play()
+    MusicBtn.Visible = true 
+    LoadingFrame.Visible = true
+    IntroFrame.Visible = true; IntroFrame.BackgroundTransparency = 1; IntroLogo.ImageTransparency = 1; WelcomeLabel.TextTransparency = 1; WelcomeShadow.TextTransparency = 1
+    LoadLabel.TextTransparency = 1
+    local fadeTime = TweenInfo.new(1, Enum.EasingStyle.Quart)
+    TweenService:Create(IntroFrame, fadeTime, {BackgroundTransparency = 0}):Play()
+    TweenService:Create(BlurEffect, fadeTime, {Size = 24}):Play(); task.wait(1)
+    TweenService:Create(WelcomeLabel, fadeTime, {TextTransparency = 0}):Play(); TweenService:Create(WelcomeShadow, fadeTime, {TextTransparency = 0}):Play()
+    TweenService:Create(LoadLabel, fadeTime, {TextTransparency = 0}):Play()
+    
+    task.spawn(function()
+        local s = tick()
+        while tick() - s < 4 do
+            local pulse = (math.sin(tick() * 4) + 1) / 2
+            local c = Color3.fromRGB(100, 0, 0):Lerp(Color3.fromRGB(255, 50, 50), pulse)
+            WelcomeLabel.TextColor3 = c; WelcomeShadow.TextColor3 = c; LoadLabel.TextColor3 = c
+            local dots = string.rep(".", math.floor(tick() * 3.5) % 4)
+            LoadLabel.Text = "Loading" .. dots; task.wait()
+        end
+    end)
+    
+    task.wait(4)
+    TweenService:Create(WelcomeLabel, fadeTime, {TextTransparency = 1}):Play()
+    TweenService:Create(WelcomeShadow, fadeTime, {TextTransparency = 1}):Play(); TweenService:Create(LoadLabel, fadeTime, {TextTransparency = 1}):Play()
+    task.wait(1) 
+    TweenService:Create(IntroLogo, TweenInfo.new(1.2), {ImageTransparency = 0}):Play()
+    task.wait(3) 
+    TweenService:Create(IntroLogo, TweenInfo.new(1.5), {ImageTransparency = 1}):Play(); TweenService:Create(IntroFrame, TweenInfo.new(1.5), {BackgroundTransparency = 1}):Play(); TweenService:Create(BlurEffect, TweenInfo.new(1.5), {Size = 0}):Play()
+    task.wait(1.5)
+    LoadingFrame:Destroy(); IntroFrame:Destroy()
+    CustomBtn.Visible = true; AimbotToggleBtn.Visible = true 
+    LoadRegistry(); RefreshProfilesUI()
+    LoadSettings("acrocan0 aim", true); ApplyLoadedSettings()
+end
+
+local isAimKeyDown = false
+UserInputService.InputBegan:Connect(function(input, gpe) if input.UserInputType == Enum.UserInputType.MouseButton2 then isAimKeyDown = true end end)
+UserInputService.InputEnded:Connect(function(input, gpe) if input.UserInputType == Enum.UserInputType.MouseButton2 then isAimKeyDown = false end end)
+
+local LastFPSUpdate = tick()
+local FrameCount = 0
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    FrameCount = FrameCount + 1
+    if tick() - LastFPSUpdate >= 0.5 then
+        if _G_settings.ShowFPSCounter then FPSDisplay.Text = "FPS: " .. math.floor(FrameCount / (tick() - LastFPSUpdate)) end
+        FrameCount = 0; LastFPSUpdate = tick()
+    end
+    
+    local cam = workspace.CurrentCamera
+    
+    if FOVCircle then
+        FOVCircle.Position = Vector2.new(cam.ViewportSize.X/2, (cam.ViewportSize.Y/2) + _G_settings.CrosshairOffsetY)
+        FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+        FOVCircle.Radius = _G_settings.FOV 
+    end
+    
+    if _G_settings.Enabled then
+        if _G_settings.RightClickAim and not isAimKeyDown then
+            -- لا تصوب إذا كان خيار الكليك اليمين مفعل والزر غير مضغوط
+        else
+            local target = nil
+            local myChar = lp.Character
+            local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if not myRoot then return end
+          
+            -- OPTIMIZED AIMBOT LOGIC
+            local potentialTargets = {}
+            
+            for _, ent in ipairs(LiveTargets) do
+                if ent.isBot and not _G_settings.AimAtBots then continue end
+                if not ent.isBot and _G_settings.IgnoredPlayers[ent.name] then continue end
+
+                local v = ent.model
+                if v and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+                    local targetPart = v:FindFirstChild(_G_settings.TargetPart)
+                    if targetPart then
+                        local screenPos, onScreen = cam:WorldToViewportPoint(targetPart.Position)
+                        if onScreen then
+                            local mouseDist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(cam.ViewportSize.X/2, (cam.ViewportSize.Y/2) + _G_settings.CrosshairOffsetY)).Magnitude
+                            if mouseDist <= _G_settings.FOV then
+                                local worldDist = (myRoot.Position - targetPart.Position).Magnitude
+                                if worldDist <= _G_settings.MaxDist then
+                                    table.insert(potentialTargets, {
+                                        ent = ent,
+                                        part = targetPart,
+                                        mDist = mouseDist,
+                                        hDist = worldDist,
+                                        health = v.Humanoid.Health
+                                    })
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- ترتيب الأهداف حسب الأولوية لتقليل فحص الجدران
+            if _G_settings.LowHealthFocus then
+                table.sort(potentialTargets, function(a, b) return a.health < b.health end)
+            else
+                table.sort(potentialTargets, function(a, b) return a.mDist < b.mDist end)
+            end
+
+            -- إرسال Raycast للهدف الأفضل فقط
+            for _, pTarget in ipairs(potentialTargets) do
+                local isVisible = true
+                if _G_settings.WallCheck then
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    rayParams.FilterDescendantsInstances = {myChar, pTarget.ent.model}
+                    local ray = workspace:Raycast(cam.CFrame.Position, (pTarget.part.Position - cam.CFrame.Position).Unit * pTarget.hDist, rayParams)
+                    if ray then isVisible = false end
+                end
+                
+                if isVisible then
+                    target = pTarget.ent
+                    break -- وجدنا الهدف! توقف عن إرسال الأشعة
+                end
+            end
+            
+            if target and target.model then
+                local aimPart = target.model[_G_settings.TargetPart]
+                local aimPos = aimPart.Position
+ 
+                if _G_settings.UsePrediction then
+                    local currentPrediction = _G_settings.Prediction
+                    if _G_settings.AutoPred then
+                        local dist = (myRoot.Position - aimPart.Position).Magnitude
+                        currentPrediction = _G_settings.AutoPredBase
+                        if dist <= _G_settings.DistThreshold then currentPrediction = currentPrediction + (dist * _G_settings.CloseMult)
+                        else currentPrediction = currentPrediction + (_G_settings.DistThreshold * _G_settings.CloseMult) + ((dist - _G_settings.DistThreshold) * _G_settings.FarMult) end
+                        if UI_Inputs.Pred then UI_Inputs.Pred.Text = string.format("%.3f", currentPrediction) end
+                    end
+                    local vel = aimPart.AssemblyLinearVelocity
+                    if vel.Magnitude > 130 then vel = vel.Unit * 130 end
+                    local predX = vel.X * currentPrediction
+                    local predY = vel.Y * currentPrediction * _G_settings.VerticalStrength; local predZ = vel.Z * currentPrediction
+                    aimPos = aimPos + Vector3.new(predX, predY, predZ)
+                end
+                
+                local targetLook = CFrame.lookAt(cam.CFrame.Position, aimPos)
+                local offsetAngle = math.rad((_G_settings.CrosshairOffsetY / cam.ViewportSize.Y) * cam.FieldOfView)
+                targetLook = targetLook * CFrame.Angles(offsetAngle, 0, 0)
+                
+                if targetLook.X == targetLook.X and targetLook.Y == targetLook.Y and targetLook.Z == targetLook.Z then
+                    local smoothVal = 1
+                    if _G_settings.Smoothness and _G_settings.Smoothness > 0 then smoothVal = math.clamp(1 / (_G_settings.Smoothness * deltaTime * 60), 0.01, 1) end
+                    cam.CFrame = cam.CFrame:Lerp(targetLook, smoothVal)
+                end
+             end
+        end
+    end
+end)
+
+task.spawn(StartSequence)
