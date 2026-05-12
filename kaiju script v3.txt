@@ -1,0 +1,1189 @@
+local lp = game:GetService("Players").LocalPlayer
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local Lighting = game:GetService("Lighting")
+local Marketplace = game:GetService("MarketplaceService")
+local UserInputService = game:GetService("UserInputService")
+local vim = game:GetService("VirtualInputManager")
+
+local pgui = lp:WaitForChild("PlayerGui")
+
+-- ==========================================
+-- [[ نظام التحقق من الأدمن (الرسوم) ]]
+-- ==========================================
+local isAdmin = (lp.Name == "sna7799")
+
+-- ==========================================
+-- [[ ACROCAN0 KEY SYSTEM (نظام المفتاح 24 ساعة) ]]
+-- ==========================================
+local KeyLink = "https://link-target.net/4922990/vGYpnPfgaUjG"
+local RequiredKey = "kaiju12345"
+
+local keySaveFile = "acrocan0_key_save_" .. tostring(lp.Name) .. ".txt"
+local isKeyVerified = isAdmin
+local KeyDuration = 86400
+local KeyExpirationTime = 0
+
+if not isKeyVerified then
+    pcall(function()
+        if readfile and isfile and isfile(keySaveFile) then
+            local savedTime = tonumber(readfile(keySaveFile))
+            if savedTime and (os.time() - savedTime) <= KeyDuration then
+                isKeyVerified = true
+                KeyExpirationTime = savedTime + KeyDuration
+            end
+        end
+    end)
+end
+
+if not isKeyVerified then
+    local KeyScreen = Instance.new("ScreenGui", pgui)
+    KeyScreen.Name = "AcroKeySystem"
+    KeyScreen.IgnoreGuiInset = true
+    KeyScreen.ResetOnSpawn = false
+
+    local KeyMain = Instance.new("Frame", KeyScreen)
+    KeyMain.Size = UDim2.new(0, 350, 0, 180)
+    KeyMain.Position = UDim2.new(0.5, -175, 0.5, -90)
+    KeyMain.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    Instance.new("UICorner", KeyMain)
+    local KeyStroke = Instance.new("UIStroke", KeyMain)
+    KeyStroke.Thickness = 2
+    KeyStroke.Color = Color3.fromRGB(150, 0, 0)
+
+    local KeyTitle = Instance.new("TextLabel", KeyMain)
+    KeyTitle.Size = UDim2.new(1, 0, 0, 40)
+    KeyTitle.Text = "ACROCAN0 HUB - KEY SYSTEM"
+    KeyTitle.TextColor3 = Color3.fromRGB(150, 0, 0)
+    KeyTitle.Font = "GothamBold"
+    KeyTitle.TextSize = 16
+    KeyTitle.BackgroundTransparency = 1
+
+    local KeyBox = Instance.new("TextBox", KeyMain)
+    KeyBox.Size = UDim2.new(0.8, 0, 0, 35)
+    KeyBox.Position = UDim2.new(0.1, 0, 0.35, 0)
+    KeyBox.PlaceholderText = "Enter your unique key here..."
+    KeyBox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    KeyBox.TextColor3 = Color3.new(1, 1, 1)
+    KeyBox.Font = "GothamBold"
+    Instance.new("UICorner", KeyBox)
+
+    local GetKeyBtn = Instance.new("TextButton", KeyMain)
+    GetKeyBtn.Size = UDim2.new(0.35, 0, 0, 35)
+    GetKeyBtn.Position = UDim2.new(0.1, 0, 0.65, 0)
+    GetKeyBtn.Text = "Copy Key Link"
+    GetKeyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    GetKeyBtn.TextColor3 = Color3.new(1, 1, 1)
+    GetKeyBtn.Font = "GothamBold"
+    Instance.new("UICorner", GetKeyBtn)
+
+    local VerifyBtn = Instance.new("TextButton", KeyMain)
+    VerifyBtn.Size = UDim2.new(0.35, 0, 0, 35)
+    VerifyBtn.Position = UDim2.new(0.55, 0, 0.65, 0)
+    VerifyBtn.Text = "Verify"
+    VerifyBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+    VerifyBtn.TextColor3 = Color3.new(1, 1, 1)
+    VerifyBtn.Font = "GothamBold"
+    Instance.new("UICorner", VerifyBtn)
+
+    GetKeyBtn.MouseButton1Click:Connect(function()
+        if setclipboard then setclipboard(KeyLink) end
+        KeyBox.PlaceholderText = "Link Copied! Paste in Browser."
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Key Info",
+            Text = "تم نسخ الرابط! اذهب للموقع لمعرفة الكلمة السرية وتكملة مفتاحك.",
+            Duration = 10
+        })
+    end)
+
+    VerifyBtn.MouseButton1Click:Connect(function()
+        if KeyBox.Text == RequiredKey then
+            local currentTime = os.time()
+            pcall(function()
+                if writefile then writefile(keySaveFile, tostring(currentTime)) end
+            end)
+            KeyExpirationTime = currentTime + KeyDuration
+            KeyScreen:Destroy()
+            isKeyVerified = true
+        else
+            KeyBox.Text = ""
+            KeyBox.PlaceholderText = "WRONG KEY! Try Again."
+        end
+    end)
+
+    repeat task.wait() until isKeyVerified
+end
+
+if pgui:FindFirstChild("AcroLangHub") then pgui.AcroLangHub:Destroy() end
+if pgui:FindFirstChild("Gray_Movement") then pgui.Gray_Movement:Destroy() end
+if Lighting:FindFirstChild("AcroBlur") then Lighting.AcroBlur:Destroy() end
+if pgui:FindFirstChild("AcroJoystickEditor") then pgui.AcroJoystickEditor:Destroy() end
+
+-- ==========================================
+-- [[ Global Settings ]]
+-- ==========================================
+local _G_settings = { 
+    FPSUnlocked = false, NoEffects = false, ShowFPSCounter = false,
+    CustomJoystick = false, JoySize = 140, JoyPosX = 20, JoyPosY = -70,
+}
+_G.AutoFarm = false
+
+-- إعدادات اللاعب
+local forceSpeed = 16
+local forceJump = 50
+local isSpeedForced = false
+local isJumpForced = false
+local NoStopEnabled = false
+
+-- ==========================================
+-- [[ Player Force Method ]]
+-- ==========================================
+RunService.Heartbeat:Connect(function(deltaTime)
+    local char = lp.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    
+    if hum and root and hum.Health > 0 then
+        
+        -- No Stop Logic
+        if NoStopEnabled then
+            if hum.PlatformStand then hum.PlatformStand = false end
+            if hum.AutoRotate == false then hum.AutoRotate = true end
+            if root.Anchored then root.Anchored = false end
+        end
+
+        -- القوة الجبرية للسرعة (عبر CFrame وليس WalkSpeed)
+        if isSpeedForced and forceSpeed > 16 then
+            if hum.MoveDirection.Magnitude > 0 then
+                local extraSpeed = forceSpeed - hum.WalkSpeed
+                if extraSpeed > 0 then
+                    root.CFrame = root.CFrame + (hum.MoveDirection * (extraSpeed * deltaTime))
+                end
+            end
+        end
+        
+        -- القوة الجبرية للنط
+        if isJumpForced then
+            hum.UseJumpPower = true
+            hum.JumpPower = forceJump
+        end
+    end
+end)
+
+
+-- ==========================================
+-- [[ Auto Farm Bot (acrocan0) ]]
+-- ==========================================
+local currentTarget = nil
+local playerTarget = nil
+local isWaitingForRespawn = false
+local lastWReset = tick()
+local smoothness = 0.15 
+
+local function getHorizontalDistance(pos1, pos2)
+    return (Vector2.new(pos1.X, pos1.Z) - Vector2.new(pos2.X, pos2.Z)).Magnitude
+end
+
+local function updateGlobalTargets()
+    local char = lp.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local rootPos = root.Position
+    local closestBuilding = nil
+    local closestBuildingDist = math.huge 
+    local closestPlayer = nil
+    local closestPlayerDist = 70 
+
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= lp and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = getHorizontalDistance(rootPos, p.Character.HumanoidRootPart.Position)
+            if dist < closestPlayerDist then
+                closestPlayerDist = dist
+                closestPlayer = p.Character
+            end
+        end
+    end
+
+    local buildings = workspace.Map:FindFirstChild("RenderBuildings")
+    if buildings then
+        for _, b in pairs(buildings:GetChildren()) do
+            if not b:FindFirstChild("0") and b.Name ~= "Tree_Pine" then
+                local dist = getHorizontalDistance(rootPos, b:GetPivot().Position)
+                if dist < closestBuildingDist then
+                    closestBuildingDist = dist
+                    closestBuilding = b
+                end
+            end
+        end
+    end
+    playerTarget = closestPlayer
+    currentTarget = closestBuilding
+end
+
+RunService.RenderStepped:Connect(function()
+    if not _G.AutoFarm then return end
+    local camera = workspace.CurrentCamera
+    local char = lp.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    
+    local targetPos = nil
+    if playerTarget then targetPos = playerTarget:GetPivot().Position
+    elseif currentTarget then targetPos = currentTarget:GetPivot().Position end
+
+    if targetPos and camera then
+        local targetCFrame = CFrame.lookAt(camera.CFrame.Position, targetPos)
+        camera.CFrame = camera.CFrame:Lerp(targetCFrame, smoothness)
+        
+        if root then
+            local bodyLook = CFrame.lookAt(root.Position, Vector3.new(targetPos.X, root.Position.Y, targetPos.Z))
+            root.CFrame = root.CFrame:Lerp(bodyLook, smoothness)
+        end
+    end
+end)
+
+local function autoAttack()
+    for i = 1, 3 do
+        local key = (i == 1 and Enum.KeyCode.One) or (i == 2 and Enum.KeyCode.Two) or Enum.KeyCode.Three
+        vim:SendKeyEvent(true, key, false, game)
+        task.wait(0.05)
+        vim:SendKeyEvent(false, key, false, game)
+        task.wait(0.6)
+    end
+end
+
+task.spawn(function()
+    while true do
+        if _G.AutoFarm then
+            local char = lp.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            
+            if hum and hum.Health <= 0 then
+                if not isWaitingForRespawn then
+                    isWaitingForRespawn = true
+                    task.wait(10)
+                    while hum and hum.Health <= 0 do
+                        vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                        task.wait(0.1)
+                        vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                        task.wait(1)
+                        char = lp.Character
+                        hum = char and char:FindFirstChildOfClass("Humanoid")
+                    end
+                    task.wait(20)
+                    vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+                    task.wait(0.1)
+                    vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+                    isWaitingForRespawn = false
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if _G.AutoFarm then
+            updateGlobalTargets()
+            local char = lp.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            
+            if root and hum and hum.Health > 0 then
+                if playerTarget then
+                    vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                    autoAttack()
+                elseif currentTarget then
+                    local dist = getHorizontalDistance(root.Position, currentTarget:GetPivot().Position)
+                    if dist < 20 then
+                        vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                        autoAttack()
+                    else
+                        if tick() - lastWReset >= 40 then
+                            vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                            task.wait(0.2)
+                            lastWReset = tick()
+                        end
+                        vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+                    end
+                else
+                    vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                end
+            end
+        else
+            vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- ==========================================
+-- [[ نظام الجويستيك المطور (Red Movement) ]]
+-- ==========================================
+local GrayGui = nil
+local activeTouch = nil
+local moveDir = Vector3.new(0,0,0)
+local Controls = nil
+
+local function SetMoveVector(vec)
+    pcall(function()
+        if not Controls then Controls = require(lp:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")):GetControls() end
+        local activeController = Controls:GetActiveController()
+        if activeController then activeController.moveVector = vec end
+    end)
+end
+
+local function ApplyJoystickSettings()
+    if GrayGui and GrayGui:FindFirstChild("TouchBlocker") then
+        local main = GrayGui.TouchBlocker.MainFrame
+        main.Size = UDim2.new(0, _G_settings.JoySize, 0, _G_settings.JoySize)
+        main.Position = UDim2.new(0, _G_settings.JoyPosX, 0.5, _G_settings.JoyPosY)
+        local stick = main.Stick
+        local half = _G_settings.JoySize / 2
+        stick.Size = UDim2.new(0, half, 0, half)
+        if not activeTouch then
+            stick.Position = UDim2.new(0.5, -half/2, 0.5, -half/2)
+        end
+    end
+end
+
+local function stopMoving()
+    activeTouch = nil
+    moveDir = Vector3.new(0,0,0)
+    if GrayGui and GrayGui:FindFirstChild("TouchBlocker") then
+        local stick = GrayGui.TouchBlocker.MainFrame.Stick
+        local half = _G_settings.JoySize / 2
+        stick:TweenPosition(UDim2.new(0.5, -half/2, 0.5, -half/2), "Out", "Back", 0.1)
+    end
+    SetMoveVector(Vector3.new(0, 0, 0))
+end
+
+local function setupGrayJoy()
+    local sg = Instance.new("ScreenGui", pgui)
+    sg.Name = "Gray_Movement"
+    sg.DisplayOrder = -100
+    sg.Enabled = false
+    sg.ResetOnSpawn = false 
+    
+    local touchBlocker = Instance.new("Frame", sg)
+    touchBlocker.Name = "TouchBlocker"
+    touchBlocker.Size = UDim2.new(0, 400, 0, 180)
+    touchBlocker.Position = UDim2.new(0, 10, 1, -200)
+    touchBlocker.BackgroundTransparency = 1
+    touchBlocker.ZIndex = -10
+    touchBlocker.Active = true 
+    
+    local main = Instance.new("Frame", touchBlocker)
+    main.Name = "MainFrame"
+    main.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    main.BackgroundTransparency = 0.85
+    main.ZIndex = -9
+    main.Active = true 
+    Instance.new("UICorner", main).CornerRadius = UDim.new(1, 0)
+    local mainStroke = Instance.new("UIStroke", main)
+    mainStroke.Color = Color3.fromRGB(150, 0, 0)
+    
+    local stick = Instance.new("Frame", main)
+    stick.Name = "Stick"
+    stick.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+    stick.BackgroundTransparency = 0.6
+    stick.ZIndex = -8
+    Instance.new("UICorner", stick).CornerRadius = UDim.new(1, 0)
+
+    GrayGui = sg
+    ApplyJoystickSettings()
+
+    main.InputBegan:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+            activeTouch = input
+            local center = main.AbsolutePosition + (main.AbsoluteSize / 2)
+            local diff = Vector2.new(input.Position.X - center.X, input.Position.Y - center.Y)
+            local limit = main.AbsoluteSize.X / 2
+            local dist = math.min(diff.Magnitude, limit)
+            if dist > 0.05 then
+                local dir = diff.Unit
+                SetMoveVector(Vector3.new(dir.X * (dist/limit), 0, dir.Y * (dist/limit)))
+            end
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == activeTouch and sg.Enabled then
+            local center = main.AbsolutePosition + (main.AbsoluteSize / 2)
+            local diff = Vector2.new(input.Position.X - center.X, input.Position.Y - center.Y)
+            local limit = main.AbsoluteSize.X / 2
+            local dist = math.min(diff.Magnitude, limit)
+            local dir = diff.Unit
+            local half = _G_settings.JoySize / 2
+            stick.Position = UDim2.new(0.5, (dir.X * dist) - half/2, 0.5, (dir.Y * dist) - half/2)
+            if dist > 0.05 then SetMoveVector(Vector3.new(dir.X * (dist/limit), 0, dir.Y * (dist/limit))) else SetMoveVector(Vector3.new(0, 0, 0)) end
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input) if input == activeTouch then stopMoving() end end)
+    UserInputService.WindowFocusReleased:Connect(stopMoving)
+    return sg
+end
+
+local function UpdateGrayMovementState()
+    local shouldBeActive = _G_settings.CustomJoystick
+    local touchGui = pgui:FindFirstChild("TouchGui")
+    local function toggleDefaultThumbstick(visible)
+        if touchGui then
+            local frame = touchGui:FindFirstChild("TouchControlFrame")
+            if frame then
+                for _, v in pairs(frame:GetChildren()) do
+                    if string.find(v.Name, "Thumbstick") then
+                        for _, desc in pairs(v:GetDescendants()) do if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then desc.ImageTransparency = visible and 0 or 1 end end
+                        v.BackgroundTransparency = 1
+                    end
+                end
+            end
+        end
+    end
+    if shouldBeActive then
+        toggleDefaultThumbstick(false)
+        if not GrayGui then GrayGui = setupGrayJoy() end
+        GrayGui.Enabled = true
+        ApplyJoystickSettings()
+    else
+        toggleDefaultThumbstick(true)
+        if GrayGui and GrayGui.Enabled then GrayGui.Enabled = false; stopMoving() end
+    end
+end
+
+-- ==========================================
+-- [[ User Interface (UI) Settings ]]
+-- ==========================================
+local ScreenGui = Instance.new("ScreenGui", pgui)
+ScreenGui.Name = "AcroLangHub";
+ScreenGui.ResetOnSpawn = false; ScreenGui.IgnoreGuiInset = true; ScreenGui.DisplayOrder = 2147483647
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local ScaryTextureID = "rbxassetid://131103233"
+local ScaryEdgeColor = Color3.fromRGB(150, 0, 0) 
+
+local function ApplyScaryTexture(parentUI)
+    local tex = Instance.new("ImageLabel", parentUI)
+    tex.Size = UDim2.new(1, 0, 1, 0)
+    tex.BackgroundTransparency = 1;
+    tex.Image = ScaryTextureID; tex.ImageTransparency = 0.6; tex.ScaleType = Enum.ScaleType.Crop
+    tex.ZIndex = parentUI.ZIndex
+    local corner = parentUI:FindFirstChildOfClass("UICorner")
+    if corner then local newCorner = Instance.new("UICorner", tex); newCorner.CornerRadius = corner.CornerRadius end
+    return tex
+end
+
+local ClickSound = Instance.new("Sound", SoundService); ClickSound.SoundId = "rbxassetid://6895079853"; ClickSound.Volume = 1
+local OpenSound = Instance.new("Sound", SoundService); OpenSound.SoundId = "rbxassetid://6895079853"; OpenSound.Volume = 1.2
+
+local function ApplyButtonEffects(button)
+    local scale = Instance.new("UIScale", button)
+    button.MouseButton1Down:Connect(function() ClickSound:Play(); TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 0.9}):Play() end)
+    button.MouseButton1Up:Connect(function() TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {Scale = 1}):Play() end)
+    button.MouseLeave:Connect(function() TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 1}):Play() end)
+end
+
+local IntroFrame = Instance.new("Frame", ScreenGui)
+IntroFrame.Size = UDim2.new(1, 0, 1, 0);
+IntroFrame.BackgroundColor3 = Color3.new(0, 0, 0); IntroFrame.BackgroundTransparency = 1; IntroFrame.ZIndex = 999999998
+IntroFrame.Visible = false
+local IntroLogo = Instance.new("ImageLabel", IntroFrame);
+IntroLogo.AnchorPoint = Vector2.new(0.5, 0.5); IntroLogo.Position = UDim2.new(0.5, 0, 0.5, 0)
+IntroLogo.Size = UDim2.new(0, 300, 0, 169); IntroLogo.BackgroundTransparency = 1;
+IntroLogo.ImageTransparency = 1; IntroLogo.Image = "rbxthumb://type=Asset&id=87319366743057&w=768&h=432"; IntroLogo.ScaleType = Enum.ScaleType.Fit
+IntroLogo.ZIndex = 999999999
+local music = Instance.new("Sound", SoundService); music.SoundId = "rbxassetid://108158862531514";
+music.Volume = 0; music.Looped = true
+
+local CurrentLang = "EN"
+local UI_Elements = {}; local UI_Inputs = {};
+local RGBButtons = {}
+local RedRGBButtons = {}
+
+local Translations = {
+    EN = {
+        Sys = "System", Bot = "Bot Script", Player = "Player", Cred = "Credits",
+        FPS = "FPS Unlocker", ShowFPS = "FPS Counter: ", ON = "ON", OFF = "OFF",
+        NoFx = "Remove Effects",
+        RedJoystickEditBtn = "Red Joystick edit",
+        CustomJoyBtn = "Red Joystick: ",
+        AutoFarmBtn = "Auto Farm: ",
+        NoStopBtn = "No Stop: ",
+    }
+}
+
+local BlurEffect = Instance.new("BlurEffect", Lighting)
+BlurEffect.Name = "AcroBlur"; BlurEffect.Size = 0
+
+local BgFrame = Instance.new("Frame", ScreenGui); BgFrame.Size = UDim2.new(1, 0, 1, 0)
+BgFrame.BackgroundColor3 = Color3.new(0, 0, 0); BgFrame.BackgroundTransparency = 1;
+BgFrame.ZIndex = -1
+BgFrame.Visible = false
+BgFrame.Active = false
+
+local StarsData = {}
+for i = 1, 30 do 
+    local star = Instance.new("Frame", BgFrame)
+    local starSize = math.random(2, 5) 
+    star.Size = UDim2.new(0, starSize, 0, starSize)
+    star.Position = UDim2.new(math.random(), 0, math.random(), 0);
+    star.BackgroundColor3 = ScaryEdgeColor; star.BackgroundTransparency = 1
+    Instance.new("UICorner", star).CornerRadius = UDim.new(1, 0)
+    table.insert(StarsData, {frame = star, speed = math.random(5, 15) / 10000})
+end
+
+local function ShowModeMsg(txt)
+    if ScreenGui:FindFirstChild("ModeNotify") then ScreenGui.ModeNotify:Destroy() end
+    local msg = Instance.new("TextLabel", ScreenGui)
+    msg.Name = "ModeNotify";
+    msg.Size = UDim2.new(0, 400, 0, 60); msg.Position = UDim2.new(0.5, -200, 0.8, 0);
+    msg.BackgroundColor3 = Color3.new(0,0,0)
+    msg.TextColor3 = ScaryEdgeColor; msg.Text = txt; msg.Font = "GothamBold"; msg.TextSize = 16;
+    msg.TextWrapped = true; Instance.new("UICorner", msg); msg.BackgroundTransparency = 1
+    msg.TextTransparency = 1; msg.ZIndex = 50000;
+    ApplyScaryTexture(msg) 
+    local s = Instance.new("UIStroke", msg); s.Thickness = 1
+    s.Color = ScaryEdgeColor; s.Transparency = 1 
+    TweenService:Create(msg, TweenInfo.new(0.3), {BackgroundTransparency = 0.2, TextTransparency = 0}):Play()
+    TweenService:Create(s, TweenInfo.new(0.3), {Transparency = 0}):Play()
+    task.delay(4.5, function() if msg then TweenService:Create(msg, TweenInfo.new(0.3), {BackgroundTransparency = 1, TextTransparency = 1}):Play(); TweenService:Create(s, TweenInfo.new(0.3), {Transparency = 1}):Play(); task.wait(0.3); msg:Destroy() end end)
+end
+
+local LoadingFrame = Instance.new("Frame", ScreenGui);
+LoadingFrame.Size = UDim2.new(1,0,1,0); LoadingFrame.BackgroundColor3 = Color3.new(0,0,0); LoadingFrame.ZIndex = 999999998; LoadingFrame.BackgroundTransparency = 1
+LoadingFrame.Visible = false
+local WelcomeLabel = Instance.new("TextLabel", LoadingFrame);
+WelcomeLabel.Size = UDim2.new(1,0,0,60); WelcomeLabel.Position = UDim2.new(0,0,0.45,-50); WelcomeLabel.Text = "Welcome to acrocan0"
+WelcomeLabel.TextSize = 45; WelcomeLabel.Font = "GothamBold"; WelcomeLabel.BackgroundTransparency = 1;
+WelcomeLabel.TextTransparency = 1; WelcomeLabel.ZIndex = 999999999
+local WelcomeShadow = Instance.new("TextLabel", WelcomeLabel)
+WelcomeShadow.Size = UDim2.new(1,0,1,0); WelcomeShadow.Position = UDim2.new(0,1,0,1); WelcomeShadow.BackgroundTransparency = 1;
+WelcomeShadow.ZIndex = 999999998; WelcomeShadow.Text = WelcomeLabel.Text; WelcomeShadow.TextSize = WelcomeLabel.TextSize
+WelcomeShadow.Font = WelcomeLabel.Font; WelcomeShadow.TextTransparency = 1 
+local LoadLabel = Instance.new("TextLabel", LoadingFrame);
+LoadLabel.Size = UDim2.new(1,0,0,30); LoadLabel.Position = UDim2.new(0,0,0.55,10); LoadLabel.Text = "Loading"
+LoadLabel.TextSize = 20; LoadLabel.Font = "GothamBold"; LoadLabel.BackgroundTransparency = 1; LoadLabel.TextTransparency = 1;
+LoadLabel.ZIndex = 999999999
+
+local CustomBtn = Instance.new("ImageButton", ScreenGui)
+CustomBtn.AnchorPoint = Vector2.new(0.5, 0); CustomBtn.Size = UDim2.new(0, 70, 0, 40);
+CustomBtn.Position = UDim2.new(0.5, 0, 0, 10); CustomBtn.BackgroundTransparency = 1
+CustomBtn.Image = "rbxthumb://type=Asset&id=87319366743057&w=768&h=432"; CustomBtn.ScaleType = Enum.ScaleType.Fit; CustomBtn.Visible = false; CustomBtn.Draggable = true;
+CustomBtn.ZIndex = 10000; ApplyButtonEffects(CustomBtn)
+
+local FPSDisplay = Instance.new("TextLabel", ScreenGui); FPSDisplay.Size = UDim2.new(0, 60, 0, 22);
+FPSDisplay.Position = UDim2.new(1, -10, 0, 10)
+FPSDisplay.AnchorPoint = Vector2.new(1, 0); FPSDisplay.BackgroundColor3 = Color3.fromRGB(15, 15, 15); FPSDisplay.TextColor3 = ScaryEdgeColor; FPSDisplay.Font = "GothamBold";
+FPSDisplay.TextSize = 12
+FPSDisplay.Text = "FPS: 60"; FPSDisplay.Visible = false; FPSDisplay.ZIndex = 10000;
+Instance.new("UICorner", FPSDisplay).CornerRadius = UDim.new(0, 4)
+local FPSDisplayStroke = Instance.new("UIStroke", FPSDisplay)
+FPSDisplayStroke.Color = ScaryEdgeColor; FPSDisplayStroke.Thickness = 0.5;
+ApplyScaryTexture(FPSDisplay)
+
+local MusicBtn = Instance.new("TextButton", ScreenGui)
+MusicBtn.Size = UDim2.new(0, 40, 0, 40)
+MusicBtn.Position = UDim2.new(1, -10, 0, 40)
+MusicBtn.AnchorPoint = Vector2.new(1, 0)
+MusicBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MusicBtn.TextColor3 = Color3.fromRGB(255, 50, 50)
+MusicBtn.Text = "off song"
+MusicBtn.Font = "GothamBold"
+MusicBtn.TextSize = 20
+MusicBtn.Visible = false
+MusicBtn.ZIndex = 10000
+Instance.new("UICorner", MusicBtn).CornerRadius = UDim.new(0, 4)
+ApplyScaryTexture(MusicBtn)
+local mtStroke = Instance.new("UIStroke", MusicBtn)
+mtStroke.Color = ScaryEdgeColor
+mtStroke.Thickness = 1
+ApplyButtonEffects(MusicBtn)
+
+MusicBtn.MouseButton1Click:Connect(function()
+    local fadeTween = TweenService:Create(music, TweenInfo.new(1), {Volume = 0})
+    fadeTween:Play()
+    fadeTween.Completed:Wait()
+    music:Stop()
+    MusicBtn:Destroy()
+end)
+
+local MainFrame = Instance.new("Frame", ScreenGui);
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5); MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0, 0, 0, 0); MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15);
+MainFrame.BackgroundTransparency = 0.2; MainFrame.Visible = false; MainFrame.Active = true
+MainFrame.Draggable = true;
+MainFrame.ZIndex = 100
+Instance.new("UICorner", MainFrame)
+
+local HubStroke = Instance.new("UIStroke", MainFrame)
+HubStroke.Thickness = 3
+HubStroke.Color = Color3.new(1, 1, 1)
+local HubGradient = Instance.new("UIGradient", HubStroke)
+HubGradient.Rotation = 90
+ApplyScaryTexture(MainFrame) 
+
+local HubTitle = Instance.new("TextLabel", MainFrame)
+HubTitle.Size = UDim2.new(1, 0, 0, 30);
+HubTitle.Position = UDim2.new(0, 0, 0, -35); HubTitle.BackgroundTransparency = 1; HubTitle.Text = "kaiju Universe
+acrocan0 script"
+HubTitle.TextColor3 = Color3.new(1, 0.2, 0.2)
+HubTitle.Font = "GothamBold";
+HubTitle.TextSize = 20
+HubTitle.ZIndex = 101
+local TitleStroke = Instance.new("UIStroke", HubTitle)
+TitleStroke.Color = Color3.new(0, 0, 0);
+TitleStroke.Thickness = 1.5
+
+local KeyTimerLabel = Instance.new("TextLabel", MainFrame)
+KeyTimerLabel.Size = UDim2.new(0, 150, 0, 20)
+KeyTimerLabel.Position = UDim2.new(1, -160, 0, -30); KeyTimerLabel.BackgroundTransparency = 1;
+KeyTimerLabel.Text = "Key Time: 00:00:00"
+KeyTimerLabel.TextColor3 = Color3.fromRGB(200, 50, 50)
+KeyTimerLabel.Font = "GothamBold"; KeyTimerLabel.TextSize = 12;
+KeyTimerLabel.TextXAlignment = Enum.TextXAlignment.Right
+KeyTimerLabel.ZIndex = 101
+
+task.spawn(function()
+    while task.wait(1) do
+        if isAdmin then KeyTimerLabel.Text = "Key: VIP (No Expiry)" else
+            local timeLeft = KeyExpirationTime - os.time()
+            if timeLeft > 0 then
+                local h = math.floor(timeLeft / 3600); local m = math.floor((timeLeft % 3600) / 60); local s = timeLeft % 60
+                KeyTimerLabel.Text = string.format("Time Left: %02d:%02d:%02d", h, m, s)
+            else KeyTimerLabel.Text = "Key Expired!" end
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local t = (math.sin(tick() * 1.5) + 1) / 2
+    local lightRed = Color3.fromRGB(255, 80, 80)
+    local darkRed = Color3.fromRGB(80, 0, 0)
+    HubGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, lightRed:Lerp(darkRed, t)),
+        ColorSequenceKeypoint.new(1, darkRed:Lerp(lightRed, t))
+    })
+
+    if BgFrame.Visible and BgFrame.BackgroundTransparency < 1 then
+        for _, data in pairs(StarsData) do
+            local pos = data.frame.Position
+            local newY = pos.Y.Scale + data.speed
+            if newY > 1 then newY = 0; data.frame.Position = UDim2.new(math.random(), 0, 0, 0) else data.frame.Position = UDim2.new(pos.X.Scale, 0, newY, 0) end
+        end
+    end
+
+    local hue = (tick() % 3) / 3
+    local color = Color3.fromHSV(hue, 1, 1)
+    for _, btn in pairs(RGBButtons) do
+        if btn and btn:IsDescendantOf(ScreenGui) then btn.TextColor3 = color; local stroke = btn:FindFirstChildOfClass("UIStroke"); if stroke then stroke.Color = color end end
+    end
+    local redPulse = math.abs(math.sin(tick() * 3))
+    local redColor = Color3.new(0.6 + (redPulse * 0.4), 0, 0)
+    for _, btn in pairs(RedRGBButtons) do
+        if btn and btn:IsDescendantOf(ScreenGui) then btn.TextColor3 = redColor; local stroke = btn:FindFirstChildOfClass("UIStroke"); if stroke then stroke.Color = redColor end end
+    end
+end)
+
+local isHubOpen = false
+local function ToggleMainHub()
+    isHubOpen = not isHubOpen
+    if isHubOpen then
+        OpenSound:Play()
+        BgFrame.Visible = true; BgFrame.Active = true
+        MainFrame.Visible = true
+        TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 550, 0, 280)}):Play()
+        TweenService:Create(BlurEffect, TweenInfo.new(0.5), {Size = 18}):Play()
+        TweenService:Create(BgFrame, TweenInfo.new(0.5), {BackgroundTransparency = 0.35}):Play()
+    else
+        BgFrame.Active = false
+        local closeTween = TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)})
+        closeTween:Play()
+        TweenService:Create(BlurEffect, TweenInfo.new(0.4), {Size = 0}):Play();
+        TweenService:Create(BgFrame, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+        closeTween.Completed:Wait()
+        if not isHubOpen then MainFrame.Visible = false; BgFrame.Visible = false end
+    end
+end
+
+CustomBtn.MouseButton1Click:Connect(ToggleMainHub)
+
+local function MakeTab(key, x, parentHold, width) 
+    local b = Instance.new("TextButton", parentHold)
+    b.Size = UDim2.new(width,0,1,0);
+    b.Position = UDim2.new(x,0,0,0); b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    b.TextColor3 = Color3.new(1, 0.2, 0.2)
+    b.Font = "GothamBold"; b.TextSize = 10
+    b.ZIndex = 102; UI_Elements[key] = b; Instance.new("UICorner", b); ApplyScaryTexture(b); ApplyButtonEffects(b);
+    return b 
+end
+
+local TabHold = Instance.new("Frame", MainFrame)
+TabHold.Size = UDim2.new(1, 0, 0, 40); TabHold.BackgroundTransparency = 1; TabHold.ZIndex = 101
+
+local tabWidth = 0.25 
+MakeTab("Sys", 0, TabHold, tabWidth)
+MakeTab("Bot", 0.25, TabHold, tabWidth)
+MakeTab("Player", 0.5, TabHold, tabWidth) 
+MakeTab("Cred", 0.75, TabHold, tabWidth)
+
+local function MakePage() 
+    local p = Instance.new("ScrollingFrame", MainFrame)
+    p.Size = UDim2.new(1, -20, 1, -55);
+    p.Position = UDim2.new(0, 10, 0, 45); p.BackgroundTransparency = 1; p.ScrollBarThickness = 0
+    p.Visible = false; p.ZIndex = 101
+    local grid = Instance.new("UIGridLayout", p);
+    grid.CellSize = UDim2.new(0, 255, 0, 45)
+    grid.CellPadding = UDim2.new(0, 10, 0, 10)
+    return p 
+end
+
+local SysP = MakePage(); SysP.Visible = true
+local BotP = MakePage();
+local PlayerP = MakePage(); 
+local CredP = MakePage();
+local function NewBtn(k, p, c) 
+    local b = Instance.new("TextButton", p)
+    b.BackgroundColor3 = Color3.fromRGB(35,35,35);
+    b.TextColor3 = Color3.new(1,1,1); b.Font = "GothamBold"; b.TextSize = 10; b.ZIndex = 102; Instance.new("UICorner", b);
+    UI_Elements[k] = b
+    ApplyScaryTexture(b); local s = Instance.new("UIStroke", b); s.Thickness = 0.5; s.Color = ScaryEdgeColor; ApplyButtonEffects(b);
+    b.MouseButton1Click:Connect(function() c() end)
+    return b
+end
+
+local function Refresh()
+    local T = Translations[CurrentLang]
+    for k, e in pairs(UI_Elements) do
+        if k == "ShowFPS" then e.Text = T.ShowFPS..(_G_settings.ShowFPSCounter and T.ON or T.OFF)
+        elseif k == "CustomJoyBtn" then e.Text = T.CustomJoyBtn..(_G_settings.CustomJoystick and T.ON or T.OFF)
+        elseif k == "NoStopBtn" then e.Text = T.NoStopBtn..(NoStopEnabled and T.ON or T.OFF)
+        elseif k == "AutoFarmBtn" then e.Text = T.AutoFarmBtn..(_G.AutoFarm and T.ON or T.OFF)
+        elseif e:IsA("TextLabel") or e:IsA("TextButton") then e.Text = T[k] or e.Text 
+        end
+    end
+    FPSDisplay.Visible = _G_settings.ShowFPSCounter
+end
+
+local function MakeAccordion(parent, titleText)
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, -10, 0, 40);
+    container.BackgroundColor3 = Color3.fromRGB(20, 20, 20); container.ClipsDescendants = true;
+    Instance.new("UICorner", container)
+    local stroke = Instance.new("UIStroke", container)
+    stroke.Color = Color3.fromRGB(255, 0, 0);
+    stroke.Transparency = 0; stroke.Thickness = 1.5
+    ApplyScaryTexture(container)
+    local headerBtn = Instance.new("TextButton", container)
+    headerBtn.Size = UDim2.new(1, 0, 0, 40);
+    headerBtn.BackgroundTransparency = 1
+    headerBtn.Text = "➡  " .. titleText
+    headerBtn.TextColor3 = Color3.new(1, 0.2, 0.2);
+    headerBtn.Font = "GothamBold"; headerBtn.TextSize = 14
+    headerBtn.TextXAlignment = Enum.TextXAlignment.Left;
+    headerBtn.ZIndex = 105
+    local padding = Instance.new("UIPadding", headerBtn)
+    padding.PaddingLeft = UDim.new(0, 15)
+    local contentHold = Instance.new("Frame", container)
+    contentHold.Size = UDim2.new(1, 0, 1, -40)
+    contentHold.Position = UDim2.new(0, 0, 0, 40)
+    contentHold.BackgroundTransparency = 1
+    local grid = Instance.new("UIGridLayout", contentHold)
+    grid.CellSize = UDim2.new(0, 245, 0, 45)
+    grid.CellPadding = UDim2.new(0, 10, 0, 10)
+    grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    local isOpen = false
+    headerBtn.MouseButton1Click:Connect(function()
+        ClickSound:Play(); isOpen = not isOpen
+        if isOpen then headerBtn.Text = "⬇  " .. titleText; local contentHeight = grid.AbsoluteContentSize.Y + 20; TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -10, 0, 40 + contentHeight)}):Play()
+        else headerBtn.Text = "➡  " .. titleText;
+        TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -10, 0, 40)}):Play() end
+    end)
+    
+    grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() if isOpen then local contentHeight = grid.AbsoluteContentSize.Y + 20; container.Size = UDim2.new(1, -10, 0, 40 + contentHeight) end end)
+    return contentHold
+end
+
+-- ==========================================
+-- [[ Player Sliders System ]]
+-- ==========================================
+local function CreatePlayerSlider(parent, name, min, max, startVal, callback)
+    local container = Instance.new("Frame", parent)
+    container.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Instance.new("UICorner", container)
+    local stroke = Instance.new("UIStroke", container)
+    stroke.Color = Color3.fromRGB(150, 0, 0)
+    
+    local label = Instance.new("TextLabel", container)
+    label.Size = UDim2.new(1, -10, 0.5, 0)
+    label.Position = UDim2.new(0, 5, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. startVal
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = "GothamBold"
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local track = Instance.new("Frame", container)
+    track.Size = UDim2.new(1, -20, 0.15, 0)
+    track.Position = UDim2.new(0, 10, 0.65, 0)
+    track.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Instance.new("UICorner", track)
+    
+    local fill = Instance.new("Frame", track)
+    local perc = (startVal - min) / (max - min)
+    fill.Size = UDim2.new(perc, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    Instance.new("UICorner", fill)
+    
+    local isDragging = false 
+    
+    local function updateSlider(input)
+        local relativeX = input.Position.X - track.AbsolutePosition.X
+        local clampedX = math.clamp(relativeX, 0, track.AbsoluteSize.X)
+        local p = clampedX / track.AbsoluteSize.X
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        local val = math.floor(min + (max - min) * p)
+        label.Text = name .. ": " .. val
+        callback(val)
+    end
+    
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true
+            updateSlider(input)
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateSlider(input)
+        end
+    end)
+end
+
+-- ==========================================
+-- [[ Editor Core Function (Reusable) ]]
+-- ==========================================
+local ActiveEditorSlider = false 
+local function CreateEditorSlider(parentUI, name, yPos, min, max, startVal, callback)
+    local label = Instance.new("TextLabel", parentUI)
+    label.Size = UDim2.new(1, -20, 0, 20)
+    label.Position = UDim2.new(0, 10, 0, yPos)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. math.floor(startVal)
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = "GothamBold"
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local container = Instance.new("Frame", parentUI)
+    container.Size = UDim2.new(1, -20, 0, 20)
+    container.Position = UDim2.new(0, 10, 0, yPos + 20)
+    container.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", container)
+   
+    local stroke = Instance.new("UIStroke", container)
+    stroke.Color = Color3.fromRGB(100, 100, 100)
+
+    local fill = Instance.new("Frame", container)
+    local perc = (startVal - min) / (max - min)
+    fill.Size = UDim2.new(perc, 0, 1, 0)
+    fill.BackgroundColor3 = ScaryEdgeColor
+    Instance.new("UICorner", fill)
+
+    local isDragging = false
+    container.InputBegan:Connect(function(input)
+        if not ActiveEditorSlider and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then 
+            isDragging = true 
+            ActiveEditorSlider = true
+        end
+    end)
+    fill.InputBegan:Connect(function(input)
+        if not ActiveEditorSlider and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then 
+            isDragging = true 
+            ActiveEditorSlider = true
+        end
+    end)
+ 
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+            if isDragging then
+                isDragging = false 
+                ActiveEditorSlider = false
+            end
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and parentUI.Visible then
+            local relativeX = input.Position.X - container.AbsolutePosition.X
+            local clampedX = math.clamp(relativeX, 0, container.AbsoluteSize.X)
+            local p = clampedX / container.AbsoluteSize.X
+            fill.Size = UDim2.new(p, 0, 1, 0)
+            local val = min + (max - min) * p
+            label.Text = name .. ": " .. math.floor(val)
+            callback(val)
+        end
+    end)
+
+    return function(newVal)
+        local p = (newVal - min) / (max - min)
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        label.Text = name .. ": " .. math.floor(newVal)
+    end
+end
+
+-- ==========================================
+-- [[ Joystick Editor UI Setup ]]
+-- ==========================================
+local JoyEditorGui = Instance.new("ScreenGui", pgui)
+JoyEditorGui.Name = "AcroJoystickEditor"
+JoyEditorGui.IgnoreGuiInset = true
+JoyEditorGui.ResetOnSpawn = false
+JoyEditorGui.DisplayOrder = 2147483648
+
+local JoyEditorMain = Instance.new("Frame", JoyEditorGui)
+JoyEditorMain.Size = UDim2.new(0, 250, 0, 300)
+JoyEditorMain.AnchorPoint = Vector2.new(1, 0.5)
+JoyEditorMain.Position = UDim2.new(1, -20, 0.5, 0)
+JoyEditorMain.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+JoyEditorMain.Visible = false
+JoyEditorMain.Active = true
+Instance.new("UICorner", JoyEditorMain)
+local JoyEdStroke = Instance.new("UIStroke", JoyEditorMain)
+JoyEdStroke.Thickness = 2
+JoyEdStroke.Color = ScaryEdgeColor
+ApplyScaryTexture(JoyEditorMain)
+
+local JoyEdTitle = Instance.new("TextLabel", JoyEditorMain)
+JoyEdTitle.Size = UDim2.new(1, 0, 0, 30)
+JoyEdTitle.BackgroundTransparency = 1
+JoyEdTitle.Text = "Edit Red Joystick"
+JoyEdTitle.TextColor3 = ScaryEdgeColor
+JoyEdTitle.Font = "GothamBold"
+JoyEdTitle.TextSize = 14
+
+local UpdateSizeSlider = CreateEditorSlider(JoyEditorMain, "Size", 40, 50, 300, _G_settings.JoySize, function(val) _G_settings.JoySize = val; ApplyJoystickSettings() end)
+local UpdatePosXSlider = CreateEditorSlider(JoyEditorMain, "X Position", 90, 0, 500, _G_settings.JoyPosX, function(val) _G_settings.JoyPosX = val; ApplyJoystickSettings() end)
+local UpdatePosYSlider = CreateEditorSlider(JoyEditorMain, "Y Position", 140, -300, 300, _G_settings.JoyPosY, function(val) _G_settings.JoyPosY = val; ApplyJoystickSettings() end)
+
+local JoyDoneBtn = Instance.new("TextButton", JoyEditorMain)
+JoyDoneBtn.Size = UDim2.new(0.4, 0, 0, 30)
+JoyDoneBtn.Position = UDim2.new(0.05, 0, 0.85, 0)
+JoyDoneBtn.BackgroundColor3 = Color3.fromRGB(0, 80, 0)
+JoyDoneBtn.TextColor3 = Color3.new(1, 1, 1)
+JoyDoneBtn.Text = "Done"
+JoyDoneBtn.Font = "GothamBold"
+Instance.new("UICorner", JoyDoneBtn)
+ApplyButtonEffects(JoyDoneBtn)
+
+local JoyReturnBtn = Instance.new("TextButton", JoyEditorMain)
+JoyReturnBtn.Size = UDim2.new(0.4, 0, 0, 30)
+JoyReturnBtn.Position = UDim2.new(0.55, 0, 0.85, 0)
+JoyReturnBtn.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+JoyReturnBtn.TextColor3 = Color3.new(1, 1, 1)
+JoyReturnBtn.Text = "Return"
+JoyReturnBtn.Font = "GothamBold"
+Instance.new("UICorner", JoyReturnBtn)
+ApplyButtonEffects(JoyReturnBtn)
+
+local function OpenJoyEditor()
+    if isHubOpen then ToggleMainHub() end 
+    _G_settings.CustomJoystick = true
+    UpdateGrayMovementState()
+    Refresh()
+    UpdateSizeSlider(_G_settings.JoySize)
+    UpdatePosXSlider(_G_settings.JoyPosX)
+    UpdatePosYSlider(_G_settings.JoyPosY)
+    JoyEditorMain.Visible = true
+end
+
+JoyDoneBtn.MouseButton1Click:Connect(function() JoyEditorMain.Visible = false; ActiveEditorSlider = false end)
+JoyReturnBtn.MouseButton1Click:Connect(function() JoyEditorMain.Visible = false; ToggleMainHub(); ActiveEditorSlider = false end)
+
+-- ==========================================
+-- [[ Settings / System Configuration ]]
+-- ==========================================
+local sysGrid = SysP:FindFirstChildOfClass("UIGridLayout")
+if sysGrid then sysGrid:Destroy() end
+local SysList = Instance.new("UIListLayout", SysP)
+SysList.Padding = UDim.new(0, 10)
+SysList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SysList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local SettingsContent = MakeAccordion(SysP, "SETTINGS")
+NewBtn("RedJoystickEditBtn", SettingsContent, function() OpenJoyEditor() end)
+NewBtn("CustomJoyBtn", SettingsContent, function() _G_settings.CustomJoystick = not _G_settings.CustomJoystick; UpdateGrayMovementState(); Refresh() end) 
+
+local PerformanceContent = MakeAccordion(SysP, "PERFORMANCE")
+NewBtn("FPS", PerformanceContent, function() 
+    _G_settings.FPSUnlocked = not _G_settings.FPSUnlocked
+    if _G_settings.FPSUnlocked then if setfpscap then setfpscap(999) end ShowModeMsg("FPS Unlocked permanently") else if setfpscap then setfpscap(60) end ShowModeMsg("FPS Locked to 60") end
+    Refresh()
+end)
+
+NewBtn("ShowFPS", PerformanceContent, function() 
+    _G_settings.ShowFPSCounter = not _G_settings.ShowFPSCounter;
+    FPSDisplay.Visible = _G_settings.ShowFPSCounter
+    Refresh() 
+end)
+
+local EffectConnection = nil
+NewBtn("NoFx", PerformanceContent, function() 
+    _G_settings.NoEffects = not _G_settings.NoEffects
+    if _G_settings.NoEffects then
+        ShowModeMsg("Performance Mode Enabled"); Lighting.GlobalShadows = false
+        for _, v in pairs(Lighting:GetChildren()) do if v:IsA("PostEffect") then v.Enabled = false end end
+        local function cleanEffects(v)
+            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then v:Destroy()
+            elseif v:IsA("BasePart") then if v.Parent and not v.Parent:FindFirstChild("Humanoid") then v.Material = Enum.Material.SmoothPlastic end
+            elseif (v:IsA("Texture") or v:IsA("Decal")) and v.Name ~= "face" then v:Destroy() end
+        end
+        for _, v in pairs(workspace:GetDescendants()) do cleanEffects(v) end
+        EffectConnection = workspace.DescendantAdded:Connect(function(v) if _G_settings.NoEffects then task.wait(); cleanEffects(v) end end)
+    else 
+        ShowModeMsg("Performance Mode Disabled (Restart Required)")
+        if EffectConnection then EffectConnection:Disconnect() end 
+    end
+    Refresh()
+end)
+
+-- ==========================================
+-- [[ Bot Page Configuration ]]
+-- ==========================================
+local botGrid = BotP:FindFirstChildOfClass("UIGridLayout")
+if botGrid then botGrid:Destroy() end
+local BotList = Instance.new("UIListLayout", BotP)
+BotList.Padding = UDim.new(0, 10)
+BotList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+BotList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local BotContent = MakeAccordion(BotP, "AUTO FARM SETTINGS")
+NewBtn("AutoFarmBtn", BotContent, function() 
+    _G.AutoFarm = not _G.AutoFarm
+    Refresh() 
+end)
+
+local BotDesc = Instance.new("TextLabel", BotP)
+BotDesc.Size = UDim2.new(1, -20, 0, 120)
+BotDesc.BackgroundTransparency = 1
+BotDesc.Text = "The Auto Respawn works if an enemy kills you. If you kill yourself, it won't work. If an enemy kills you, the Auto Shift will work by itself.\nThis Auto Farm was developed by acrocan0 and it simulates player movements so it's not obvious you are using a script."
+BotDesc.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+BotDesc.Font = "Gotham"
+BotDesc.TextSize = 11
+BotDesc.TextWrapped = true
+BotDesc.TextYAlignment = Enum.TextYAlignment.Top
+
+-- ==========================================
+-- [[ Player Page Configuration ]]
+-- ==========================================
+local playerGrid = PlayerP:FindFirstChildOfClass("UIGridLayout")
+if playerGrid then playerGrid:Destroy() end
+local PlayerList = Instance.new("UIListLayout", PlayerP)
+PlayerList.Padding = UDim.new(0, 10)
+PlayerList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+PlayerList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local PlayerContent = MakeAccordion(PlayerP, "CHARACTER MODS")
+
+NewBtn("NoStopBtn", PlayerContent, function() NoStopEnabled = not NoStopEnabled; Refresh() end)
+
+CreatePlayerSlider(PlayerContent, "Speed", 16, 100, 16, function(val)
+    forceSpeed = val
+    if val > 16 then
+        isSpeedForced = true
+    else
+        isSpeedForced = false
+    end
+end)
+
+CreatePlayerSlider(PlayerContent, "Jump", 50, 300, 50, function(val)
+    forceJump = val
+    if val > 50 then
+        isJumpForced = true
+    else
+        isJumpForced = false
+    end
+end)
+
+-- ==========================================
+-- [[ Credits Page Configuration ]]
+-- ==========================================
+local cl = Instance.new("TextLabel", CredP);
+cl.Size=UDim2.new(1,0,1,0); cl.BackgroundTransparency=1
+cl.TextColor3=Color3.new(1,1,1); cl.Text="Owner: acrocan0\nTikTok: @acrocan0"; cl.Font="GothamBold"; cl.ZIndex = 102
+
+local function HideAllPages()
+    SysP.Visible = false
+    BotP.Visible = false
+    PlayerP.Visible = false
+    CredP.Visible = false
+end
+
+UI_Elements.Sys.MouseButton1Click:Connect(function() HideAllPages(); SysP.Visible=true end)
+UI_Elements.Bot.MouseButton1Click:Connect(function() HideAllPages(); BotP.Visible=true end)
+UI_Elements.Player.MouseButton1Click:Connect(function() HideAllPages(); PlayerP.Visible=true end)
+UI_Elements.Cred.MouseButton1Click:Connect(function() HideAllPages(); CredP.Visible=true end)
+
+local function StartSequence()
+    music:Play()
+    TweenService:Create(music, TweenInfo.new(1.5), {Volume = 1}):Play()
+    MusicBtn.Visible = true 
+    LoadingFrame.Visible = true
+    IntroFrame.Visible = true;
+    IntroFrame.BackgroundTransparency = 1; IntroLogo.ImageTransparency = 1; WelcomeLabel.TextTransparency = 1; WelcomeShadow.TextTransparency = 1
+    LoadLabel.TextTransparency = 1
+    local fadeTime = TweenInfo.new(1, Enum.EasingStyle.Quart)
+    TweenService:Create(IntroFrame, fadeTime, {BackgroundTransparency = 0}):Play()
+    TweenService:Create(BlurEffect, fadeTime, {Size = 24}):Play();
+    task.wait(1)
+    TweenService:Create(WelcomeLabel, fadeTime, {TextTransparency = 0}):Play(); TweenService:Create(WelcomeShadow, fadeTime, {TextTransparency = 0}):Play()
+    TweenService:Create(LoadLabel, fadeTime, {TextTransparency = 0}):Play()
+    
+    task.spawn(function()
+        local s = tick()
+        while tick() - s < 4 do
+            local pulse = (math.sin(tick() * 4) + 1) / 2
+            local c = Color3.fromRGB(100, 0, 0):Lerp(Color3.fromRGB(255, 50, 50), pulse)
+            WelcomeLabel.TextColor3 = c; WelcomeShadow.TextColor3 = c; LoadLabel.TextColor3 = c
+            local dots = string.rep(".", math.floor(tick() * 3.5) % 4)
+            LoadLabel.Text = "Loading" .. dots; task.wait()
+        end
+    end)
+    
+    task.wait(4)
+    TweenService:Create(WelcomeLabel, fadeTime, {TextTransparency = 1}):Play()
+    TweenService:Create(WelcomeShadow, fadeTime, {TextTransparency = 1}):Play();
+    TweenService:Create(LoadLabel, fadeTime, {TextTransparency = 1}):Play()
+    task.wait(1) 
+    TweenService:Create(IntroLogo, TweenInfo.new(1.2), {ImageTransparency = 0}):Play()
+    task.wait(3) 
+    TweenService:Create(IntroLogo, TweenInfo.new(1.5), {ImageTransparency = 1}):Play();
+    TweenService:Create(IntroFrame, TweenInfo.new(1.5), {BackgroundTransparency = 1}):Play(); TweenService:Create(BlurEffect, TweenInfo.new(1.5), {Size = 0}):Play()
+    task.wait(1.5)
+    LoadingFrame:Destroy();
+    IntroFrame:Destroy()
+    CustomBtn.Visible = true
+    Refresh()
+end
+
+local LastFPSUpdate = tick()
+local FrameCount = 0
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    FrameCount = FrameCount + 1
+    if tick() - LastFPSUpdate >= 0.5 then
+        if _G_settings.ShowFPSCounter then FPSDisplay.Text = "FPS: " .. math.floor(FrameCount / (tick() - LastFPSUpdate)) end
+        FrameCount = 0; LastFPSUpdate = tick()
+    end
+end)
+
+task.spawn(StartSequence)
