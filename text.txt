@@ -1,0 +1,1904 @@
+local lp = game:GetService("Players").LocalPlayer
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService")
+local SoundService = game:GetService("SoundService")
+local Lighting = game:GetService("Lighting")
+local Marketplace = game:GetService("MarketplaceService")
+local UserInputService = game:GetService("UserInputService")
+local vim = game:GetService("VirtualInputManager")
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+local PlayerGui = lp:WaitForChild("PlayerGui")
+
+-- [[ الإعدادات الأساسية ]]
+local Settings = { 
+    MeteorFarmBiggest = false,
+    MeteorFarmClosest = false,
+    DiamondFarm = false,
+    FoodFarm = false,
+    WaterFarm = false,
+    MeteorESP = false,
+    ShowMeteorCount = false, 
+    DiamondESP = false,
+    ShowDiamondCount = false,
+    AutoRespawn = false,
+}
+
+local forceSpeed = 16
+local forceJump = 50
+local isSpeedForced = false
+local isJumpForced = false
+local NoStopEnabled = false
+local isEatingOrDrinking = false
+
+-- ==========================================
+-- [[ تنظيف الواجهات القديمة ]]
+-- ==========================================
+if PlayerGui:FindFirstChild("DinoSimHub") then PlayerGui.DinoSimHub:Destroy() end
+if PlayerGui:FindFirstChild("AcroLangHub") then PlayerGui.AcroLangHub:Destroy() end
+if Lighting:FindFirstChild("AcroBlur") then Lighting.AcroBlur:Destroy() end
+
+-- ==========================================
+-- [[ Player Force Method (Speed/Jump) ]]
+-- ==========================================
+RunService.Heartbeat:Connect(function(deltaTime)
+    local char = lp.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    
+    if hum and root and hum.Health > 0 then
+        if NoStopEnabled then
+            if hum.PlatformStand then hum.PlatformStand = false end
+            if hum.AutoRotate == false then hum.AutoRotate = true end
+            if root.Anchored and not (Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest or Settings.DiamondFarm or isEatingOrDrinking) then root.Anchored = false end
+        end
+        if isSpeedForced and forceSpeed > 16 and not (Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest or Settings.DiamondFarm or isEatingOrDrinking) then
+            hum.WalkSpeed = forceSpeed
+        end
+        if isJumpForced then
+            hum.UseJumpPower = true
+            hum.JumpPower = forceJump
+        end
+    end
+end)
+
+-- ==========================================
+-- [[ المتغيرات العالمية لتخطي الأهداف ]]
+-- ==========================================
+local skippedExplosions = {}
+local skippedMeteors = {}
+local skippedDiamonds = {}
+
+local function resetSkippedCache()
+    skippedExplosions = {} 
+    skippedMeteors = {}
+    skippedDiamonds = {}
+end
+
+-- ==========================================
+-- [[ Auto Respawn System ]]
+-- ==========================================
+local VIM_Y_OFFSET = 55 
+local VIM_X_OFFSET = 0  
+
+local function findRespawnButton()
+    local deadGui = PlayerGui:FindFirstChild("DeadGui")
+    local buttons = deadGui and deadGui:FindFirstChild("Buttons")
+    local btn = buttons and buttons:FindFirstChild("RespawnBtn")
+    if btn then return btn end
+    for _, v in pairs(PlayerGui:GetDescendants()) do
+        if v:IsA("TextButton") or v:IsA("ImageButton") then
+            if v.Name == "RespawnBtn" or string.lower(v.Name) == "respawn" then return v end
+        end
+    end
+    return nil
+end
+
+local function pressButton(btn, extraXOffset)
+    extraXOffset = extraXOffset or 0
+    if btn and btn.AbsoluteSize.X > 0 and btn.Visible then
+        local visualX = btn.AbsolutePosition.X + (btn.AbsoluteSize.X / 2)
+        local visualY = btn.AbsolutePosition.Y + (btn.AbsoluteSize.Y / 2)
+        local parentGui = btn:FindFirstAncestorOfClass("ScreenGui")
+        if parentGui and not parentGui.IgnoreGuiInset then
+            local inset = GuiService:GetGuiInset()
+            visualX = visualX + inset.X
+            visualY = visualY + inset.Y
+        end
+        if visualX <= 10 or visualY <= 10 then return end
+        pcall(function()
+            local hardwareClickX = visualX + VIM_X_OFFSET + extraXOffset
+            local hardwareClickY = visualY + VIM_Y_OFFSET
+            vim:SendMouseButtonEvent(hardwareClickX, hardwareClickY, 0, true, game, 1)
+            task.wait(0.03)
+            vim:SendMouseButtonEvent(hardwareClickX, hardwareClickY, 0, false, game, 1)
+        end)
+    end
+end
+
+local isSequenceRunning = false
+local function runRespawnSequence()
+    if isSequenceRunning then return end
+    isSequenceRunning = true
+    task.spawn(function()
+        local waitTime = 20
+        while waitTime > 0 do
+            task.wait(1)
+            waitTime = waitTime - 1
+            if not Settings.AutoRespawn then isSequenceRunning = false; return end
+        end
+        if Settings.AutoRespawn then
+            local respawnBtn = findRespawnButton()
+            if respawnBtn then pressButton(respawnBtn)
+            else
+                task.wait(1)
+                respawnBtn = findRespawnButton()
+                if respawnBtn then pressButton(respawnBtn) end
+            end
+        end
+        isSequenceRunning = false
+    end)
+end
+
+local function monitorHealth(character)
+    if not character then return end
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if humanoid then
+        if humanoid.Health <= 0 then
+            resetSkippedCache()
+            if Settings.AutoRespawn then runRespawnSequence() end
+        end
+        humanoid.HealthChanged:Connect(function(currentHealth)
+            if currentHealth <= 0 then
+                resetSkippedCache()
+                if Settings.AutoRespawn then runRespawnSequence() end
+            end
+        end)
+        humanoid.Died:Connect(function()
+            resetSkippedCache()
+            if Settings.AutoRespawn then runRespawnSequence() end
+        end)
+    end
+end
+
+if lp.Character then monitorHealth(lp.Character) end
+lp.CharacterAdded:Connect(function(newCharacter) monitorHealth(newCharacter) end)
+
+-- =======================================================
+-- [[ دوال الطيران (CFrame) ]]
+-- =======================================================
+local FLY_SPEED = 60           
+local NEXT_DELAY = 0.05         
+local EXPLOSION_TRAVEL_TIMEOUT = 40 
+
+local function absoluteFlyTo(hrp, humanoid, targetPosition, maxTimeLeft, stopDistance, isFoodFlight)
+    stopDistance = stopDistance or 6
+    if not hrp or not hrp.Parent or not humanoid then return false end
+    local startTime = os.clock()
+    local reached = false
+
+    if humanoid then humanoid.PlatformStand = true end
+
+    while true do
+        if not hrp or not hrp.Parent or humanoid.Health <= 0 then break end
+        if not (Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest or Settings.DiamondFarm or isEatingOrDrinking) then break end
+        if not isFoodFlight and isEatingOrDrinking then break end
+
+        local elapsed = os.clock() - startTime
+        if elapsed > maxTimeLeft then break end
+
+        local currentPos = hrp.Position
+        local currentDist = (targetPosition - currentPos).Magnitude
+        if currentDist <= stopDistance then reached = true; break end
+
+        local direction = (targetPosition - currentPos).Unit
+        local step = math.min(FLY_SPEED * 0.05, currentDist)
+        local nextPos = currentPos + direction * step
+        hrp.CFrame = CFrame.new(nextPos, targetPosition)
+
+        RunService.Heartbeat:Wait()
+    end
+
+    if humanoid then humanoid.PlatformStand = false end
+    if hrp and hrp.Parent then
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end
+    return reached
+end
+
+-- =======================================================
+-- [[ نظام الأكل والشرب ]]
+-- =======================================================
+local function getClosestLeaf(hrp)
+    local closest = nil
+    local minDist = math.huge
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") and v.Name == "Leaf" then
+            local dist = (v.Position - hrp.Position).Magnitude
+            if dist < minDist then minDist = dist; closest = v end
+        end
+    end
+    return closest
+end
+
+local function getClosestWater(hrp)
+    local closest = nil
+    local minDist = math.huge
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("BasePart") and v.Name == "Water" then
+            local dist = (v.Position - hrp.Position).Magnitude
+            if dist < minDist then minDist = dist; closest = v end
+        end
+    end
+    return closest
+end
+
+local function processConsumable(hrp, hum, typeStr, duration)
+    local elapsed = 0
+    local reachedDest = false
+    isEatingOrDrinking = true
+    
+    while elapsed < duration and (Settings.FoodFarm or Settings.WaterFarm) do
+        if hum.Health <= 0 then break end
+        local target = nil
+        local stopDist = 5
+        if typeStr == "Food" and Settings.FoodFarm then
+            target = getClosestLeaf(hrp); stopDist = 13
+        elseif typeStr == "Water" and Settings.WaterFarm then
+            target = getClosestWater(hrp); stopDist = 8
+        else break end
+        
+        if not target or not target.Parent then task.wait(0.5); continue end
+        
+        absoluteFlyTo(hrp, hum, target.Position, 10, stopDist, true)
+        reachedDest = true
+        hrp.Anchored = true
+        
+        local oldMin = lp.CameraMinZoomDistance
+        local oldMax = lp.CameraMaxZoomDistance
+        lp.CameraMinZoomDistance = 0.5
+        lp.CameraMaxZoomDistance = 0.5
+        local cam = workspace.CurrentCamera
+        local cx, cy = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+        
+        while elapsed < duration and target and target.Parent and hum.Health > 0 do
+            cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
+            pcall(function()
+                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                task.wait(0.01)
+                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+            end)
+            task.wait(0.05)
+            elapsed = elapsed + 0.06
+        end
+        
+        lp.CameraMinZoomDistance = oldMin
+        lp.CameraMaxZoomDistance = oldMax
+        hrp.Anchored = false
+    end
+    
+    return reachedDest
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        local char = lp.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChild("Humanoid")
+        
+        if hrp and hum and hum.Health > 0 then
+            if Settings.FoodFarm or Settings.WaterFarm then
+                local cycleDone = false
+                local savedPos = hrp.Position
+                
+                if Settings.FoodFarm then
+                    local didReach = processConsumable(hrp, hum, "Food", 5)
+                    if didReach then cycleDone = true end
+                end
+                
+                if Settings.WaterFarm then
+                    local didReach = processConsumable(hrp, hum, "Water", 10)
+                    if didReach then cycleDone = true end
+                end
+                
+                if cycleDone then
+                    isEatingOrDrinking = true
+                    absoluteFlyTo(hrp, hum, savedPos, 30, 5, true)
+                    hrp.CFrame = CFrame.new(savedPos)
+                    isEatingOrDrinking = false
+                    
+                    local waitTime = 60
+                    while waitTime > 0 and (Settings.FoodFarm or Settings.WaterFarm) do
+                        task.wait(1); waitTime = waitTime - 1
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- =======================================================
+-- [[ نظام الفارم (النيازك + الدايموند) ]]
+-- =======================================================
+local activeFakeFloor = nil 
+local platformConnection = nil
+local currentPlatformHRP = nil 
+
+local activeExplosions = {}
+local activeMeteors = {} 
+local activeDiamonds = {} 
+
+local function cacheObject(obj)
+    if obj:IsA("Part") and obj.Name == "Explosion" then
+        local isOfficialExplosion = false
+        pcall(function()
+            if obj.Material == Enum.Material.Glass and obj.BrickColor.Name == "Steel blue" and obj.Size.X >= 90 then
+                isOfficialExplosion = true
+            end
+        end)
+        if isOfficialExplosion then activeExplosions[obj] = true end
+    elseif obj:IsA("Model") and obj.Name == "Meteor" then
+        activeMeteors[obj] = true
+    elseif obj:IsA("Model") and (string.find(obj.Name, "Diamond Rock") or obj:GetAttribute("DiamondRock")) then
+        activeDiamonds[obj] = true
+    end
+end
+
+for _, obj in pairs(workspace:GetDescendants()) do cacheObject(obj) end
+workspace.DescendantAdded:Connect(cacheObject)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if activeExplosions[obj] then activeExplosions[obj] = nil; skippedExplosions[obj] = nil
+    elseif activeMeteors[obj] then activeMeteors[obj] = nil; skippedMeteors[obj] = nil
+    elseif activeDiamonds[obj] then activeDiamonds[obj] = nil; skippedDiamonds[obj] = nil end
+end)
+
+local function getValidMeteorCount()
+    local count = 0
+    for meteor in pairs(activeMeteors) do
+        if meteor and meteor.Parent then count = count + 1 else activeMeteors[meteor] = nil end
+    end
+    return count
+end
+
+local function getValidDiamondCount()
+    local count = 0
+    for diamond in pairs(activeDiamonds) do
+        if diamond and diamond.Parent then count = count + 1 else activeDiamonds[diamond] = nil end
+    end
+    return count
+end
+
+local function skipExplosionZone(centerPosition)
+    for p in pairs(activeExplosions) do
+        pcall(function() 
+            if p and p.Parent and (p.Position - centerPosition).Magnitude < 100 then skippedExplosions[p] = true end
+        end)
+    end
+end
+
+local function getClosestExplosion(hrp)
+    local closest = nil; local minDistance = math.huge; local hrpPos = hrp.Position 
+    for obj in pairs(activeExplosions) do
+        local success = pcall(function()
+            if obj and obj.Parent and not skippedExplosions[obj] then
+                local dist = (hrpPos - obj.Position).Magnitude
+                if dist < minDistance then minDistance = dist; closest = obj end
+            elseif not obj or not obj.Parent then activeExplosions[obj] = nil; skippedExplosions[obj] = nil end
+        end)
+        if not success then activeExplosions[obj] = nil end
+    end
+    return closest
+end
+
+local function getBiggestMeteor()
+    local biggestMeteor = nil; local maxSize = -1
+    for obj in pairs(activeMeteors) do
+        pcall(function()
+            if obj and obj.Parent and not skippedMeteors[obj] then
+                local extentsSize = obj:GetExtentsSize()
+                local sizeVolume = extentsSize.X * extentsSize.Y * extentsSize.Z
+                if sizeVolume > maxSize then maxSize = sizeVolume; biggestMeteor = obj end
+            elseif not obj or not obj.Parent then activeMeteors[obj] = nil; skippedMeteors[obj] = nil end
+        end)
+    end
+    return biggestMeteor
+end
+
+local function getClosestMeteor(hrp)
+    local closest = nil; local minDistance = math.huge; local hrpPos = hrp.Position 
+    for obj in pairs(activeMeteors) do
+        local success = pcall(function()
+            if obj and obj.Parent and not skippedMeteors[obj] then
+                local pos = obj:GetPivot().Position
+                local dist = (hrpPos - pos).Magnitude
+                if dist < minDistance then minDistance = dist; closest = obj end
+            elseif not obj or not obj.Parent then activeMeteors[obj] = nil; skippedMeteors[obj] = nil end
+        end)
+        if not success then activeMeteors[obj] = nil end
+    end
+    return closest
+end
+
+local function getClosestDiamond(hrp)
+    local closest = nil; local minDistance = math.huge; local hrpPos = hrp.Position 
+    for obj in pairs(activeDiamonds) do
+        local success = pcall(function()
+            if obj and obj.Parent and not skippedDiamonds[obj] then
+                local pos = obj:GetPivot().Position
+                local dist = (hrpPos - pos).Magnitude
+                if dist < minDistance then minDistance = dist; closest = obj end
+            elseif not obj or not obj.Parent then activeDiamonds[obj] = nil; skippedDiamonds[obj] = nil end
+        end)
+        if not success then activeDiamonds[obj] = nil end
+    end
+    return closest
+end
+
+-- =======================================================
+-- [[ Noclip System ]]
+-- =======================================================
+local wasFarming = false
+RunService.Stepped:Connect(function()
+    local isFarmingActive = (Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest or Settings.DiamondFarm or isEatingOrDrinking)
+    local char = lp.Character
+    if isFarmingActive then
+        wasFarming = true
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+            end
+        end
+    elseif wasFarming then
+        wasFarming = false
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if part.Name == "HumanoidRootPart" or part.Name == "Torso" or part.Name == "Head" or part.Name == "UpperTorso" or part.Name == "LowerTorso" then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end
+    end
+end)
+
+local function startContinuousPlatform(hrp)
+    if not activeFakeFloor or not activeFakeFloor.Parent then 
+        local platform = Instance.new("Part")
+        platform.Size = Vector3.new(25, 2, 25) 
+        platform.Anchored = true
+        platform.Transparency = 1 
+        platform.Color = Color3.fromRGB(0, 255, 128)
+        platform.Material = Enum.Material.Neon
+        platform.Parent = workspace
+        activeFakeFloor = platform
+    end
+    if currentPlatformHRP ~= hrp then
+        currentPlatformHRP = hrp
+        if platformConnection then platformConnection:Disconnect() end
+        platformConnection = RunService.Heartbeat:Connect(function()
+            if activeFakeFloor and activeFakeFloor.Parent and hrp and hrp.Parent then
+                activeFakeFloor.CFrame = CFrame.new(hrp.Position.X, hrp.Position.Y - 3.6, hrp.Position.Z)
+            end
+        end)
+    end
+end
+
+-- Aura Prompts
+task.spawn(function()
+    while task.wait(0.05) do
+        if Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest or Settings.DiamondFarm then
+            local character = lp.Character
+            local humanoid = character and character:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                for meteor in pairs(activeMeteors) do
+                    pcall(function()
+                        if meteor and meteor.Parent then
+                            local prompt = meteor:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if prompt and fireproximityprompt then fireproximityprompt(prompt, 0); fireproximityprompt(prompt, 1) end
+                        end
+                    end)
+                end
+                for diamond in pairs(activeDiamonds) do
+                    pcall(function()
+                        if diamond and diamond.Parent then
+                            local prompt = diamond:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if prompt and fireproximityprompt then fireproximityprompt(prompt, 0); fireproximityprompt(prompt, 1) end
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- [[ User Interface (UI) - PRE-SETUP ]]
+-- ==========================================
+local ScreenGui = Instance.new("ScreenGui", PlayerGui)
+ScreenGui.Name = "DinoSimHub"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 2147483647
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local function SafeTextScale(obj, optimalSize)
+    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+        local maxScaleFactor = 2.0
+        local targetSize = math.floor(optimalSize * maxScaleFactor)
+        obj.TextScaled = true
+        obj.RichText = true
+        local constraint = obj:FindFirstChildOfClass("UITextSizeConstraint")
+        if not constraint then
+            constraint = Instance.new("UITextSizeConstraint")
+            constraint.Parent = obj
+        end
+        constraint.MaxTextSize = targetSize
+        constraint.MinTextSize = 6
+    end
+end
+
+-- =======================================================
+-- [[ رسالة حظر الفارم ]]
+-- =======================================================
+local AntiBanWarning = Instance.new("TextLabel", ScreenGui)
+AntiBanWarning.Name = "AntiBanWarning"
+AntiBanWarning.Size = UDim2.new(0, 500, 0, 80)
+AntiBanWarning.Position = UDim2.new(0.5, -250, 0.15, 0)
+AntiBanWarning.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+AntiBanWarning.BorderSizePixel = 0
+AntiBanWarning.TextColor3 = Color3.fromRGB(255, 255, 255) 
+AntiBanWarning.Text = "If you continue taking meteors you will be banned.\nFarming stopped until more meteors spawn."
+AntiBanWarning.Font = Enum.Font.Gotham 
+SafeTextScale(AntiBanWarning, 11)
+AntiBanWarning.TextWrapped = true
+Instance.new("UICorner", AntiBanWarning)
+AntiBanWarning.BackgroundTransparency = 1 
+AntiBanWarning.TextTransparency = 1
+AntiBanWarning.ZIndex = 50000
+local isWarningVisible = false
+
+-- =======================================================
+-- [[ حلقة التحكم الأساسية للفارم ]]
+-- =======================================================
+task.spawn(function()
+    while true do
+        task.wait(0.1) 
+        local isFarmingAnything = Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest or Settings.DiamondFarm
+        
+        if isFarmingAnything and not isEatingOrDrinking then
+            pcall(function() 
+                local character = lp.Character
+                if not character then return end
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChild("Humanoid")
+                if not hrp or not humanoid or humanoid.Health <= 0 then return end
+                
+                startContinuousPlatform(hrp)
+                
+                local targetExplosion = nil
+                local targetDiamond = nil
+                local targetMeteor = nil
+
+                if Settings.MeteorFarmClosest then targetExplosion = getClosestExplosion(hrp) end
+                if not targetExplosion and Settings.DiamondFarm then targetDiamond = getClosestDiamond(hrp) end
+                
+                local isMeteorBanned = false
+                if not targetExplosion and not targetDiamond and (Settings.MeteorFarmBiggest or Settings.MeteorFarmClosest) then
+                    local mCount = getValidMeteorCount()
+                    if mCount > 10 then 
+                        if Settings.MeteorFarmClosest then targetMeteor = getClosestMeteor(hrp)
+                        elseif Settings.MeteorFarmBiggest then targetMeteor = getBiggestMeteor() end
+                    else isMeteorBanned = true end
+                end
+
+                if isMeteorBanned and not targetDiamond and not targetExplosion then
+                    if not isWarningVisible then
+                        isWarningVisible = true
+                        TweenService:Create(AntiBanWarning, TweenInfo.new(0.5), {BackgroundTransparency = 0.90, TextTransparency = 0}):Play()
+                    end
+                    if humanoid then humanoid.PlatformStand = true end -- الحفاظ على وضع الطيران
+                    if hrp then 
+                        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                        hrp.AssemblyAngularVelocity = Vector3.new(0,0,0) 
+                        hrp.Anchored = true -- تثبيت اللاعب في الهواء لمنع الارتفاع التلقائي
+                    end
+                    return 
+                else
+                    if isWarningVisible then
+                        isWarningVisible = false
+                        TweenService:Create(AntiBanWarning, TweenInfo.new(0.5), {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+                    end
+                end
+
+                if not targetExplosion and not targetDiamond and not targetMeteor then 
+                    resetSkippedCache()
+                    if humanoid then humanoid.PlatformStand = true end -- الحفاظ على وضع الطيران
+                    if hrp then 
+                        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                        hrp.AssemblyAngularVelocity = Vector3.new(0,0,0) 
+                        hrp.Anchored = true -- تثبيت اللاعب في الهواء بانتظار أهداف جديدة
+                    end
+                    return 
+                else
+                    if hrp then hrp.Anchored = false end -- تحرير اللاعب عند وجود هدف جديد
+                end
+                
+                if targetExplosion then
+                    local savedExplosionPos = targetExplosion.Position
+                    local landPos = Vector3.new(targetExplosion.Position.X, targetExplosion.Position.Y, targetExplosion.Position.Z)
+                    local reached = absoluteFlyTo(hrp, humanoid, landPos, EXPLOSION_TRAVEL_TIMEOUT, 6, false)
+                    if not reached then
+                        if not isEatingOrDrinking then skipExplosionZone(savedExplosionPos) end
+                        return
+                    end
+                    if targetExplosion and targetExplosion.Parent and hrp and hrp.Parent then
+                        hrp.CFrame = targetExplosion.CFrame
+                        hrp.Anchored = true 
+                        local collectStart = os.clock()
+                        while os.clock() - collectStart < 7.0 and humanoid.Health > 0 and isFarmingAnything do
+                            if isEatingOrDrinking then break end 
+                            if not targetExplosion or not targetExplosion.Parent then break end
+                            if firetouchinterest then
+                                pcall(function()
+                                    firetouchinterest(hrp, targetExplosion, 0)
+                                    task.wait(0.01) 
+                                    if targetExplosion and targetExplosion.Parent then firetouchinterest(hrp, targetExplosion, 1) end
+                                end)
+                            end
+                            task.wait(0.05)
+                        end
+                        if hrp and hrp.Parent then hrp.Anchored = false end
+                        skipExplosionZone(savedExplosionPos)
+                        task.wait(NEXT_DELAY)
+                    end
+                elseif targetDiamond then
+                    local landPos = targetDiamond:GetPivot().Position
+                    local reached = absoluteFlyTo(hrp, humanoid, landPos, 30, 5, false)
+                    if not reached then return end
+                    local collectStart = os.clock()
+                    while os.clock() - collectStart < 4.0 and humanoid.Health > 0 and Settings.DiamondFarm do
+                        if isEatingOrDrinking then break end
+                        if not targetDiamond or not targetDiamond.Parent then break end
+                        task.wait(0.1)
+                    end
+                    skippedDiamonds[targetDiamond] = true
+                    task.wait(NEXT_DELAY)
+                elseif targetMeteor then
+                    local landPos = targetMeteor:GetPivot().Position
+                    local reached = absoluteFlyTo(hrp, humanoid, landPos, 60, 60, false)
+                    if not reached then return end
+                    task.wait(0.5) 
+                    skippedMeteors[targetMeteor] = true
+                    task.wait(NEXT_DELAY)
+                end
+            end)
+        else
+            if isWarningVisible then
+                isWarningVisible = false
+                TweenService:Create(AntiBanWarning, TweenInfo.new(0.5), {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+            end
+            if not isEatingOrDrinking then
+                if activeFakeFloor then activeFakeFloor:Destroy(); activeFakeFloor = nil; currentPlatformHRP = nil end
+                if platformConnection then platformConnection:Disconnect(); platformConnection = nil end
+                
+                -- إعادة اللاعب إلى حالته الطبيعية عند إيقاف الفارم
+                local character = lp.Character
+                if character then
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    local humanoid = character:FindFirstChild("Humanoid")
+                    if hrp then hrp.Anchored = false end
+                    if humanoid then humanoid.PlatformStand = false end
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- [[ ESP System ]]
+-- ==========================================
+local meteorHighlights = {}
+local diamondHighlights = {}
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if Settings.MeteorESP then
+            for meteor in pairs(activeMeteors) do
+                if meteor and meteor.Parent then
+                    if not meteorHighlights[meteor] then
+                        local hl = Instance.new("Highlight")
+                        hl.FillColor = Color3.fromRGB(255, 80, 0)
+                        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        hl.FillTransparency = 0.5
+                        hl.OutlineTransparency = 0
+                        hl.Adornee = meteor
+                        hl.Parent = meteor
+                        meteorHighlights[meteor] = hl
+                    end
+                else activeMeteors[meteor] = nil end
+            end
+            for m, hl in pairs(meteorHighlights) do
+                if not m or not m.Parent then pcall(function() hl:Destroy() end); meteorHighlights[m] = nil end
+            end
+        else
+            for m, hl in pairs(meteorHighlights) do pcall(function() hl:Destroy() end) end
+            meteorHighlights = {}
+        end
+
+        if Settings.DiamondESP then
+            for diamond in pairs(activeDiamonds) do
+                if diamond and diamond.Parent then
+                    if not diamondHighlights[diamond] then
+                        local hl = Instance.new("Highlight")
+                        hl.FillColor = Color3.fromRGB(0, 255, 255) 
+                        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        hl.FillTransparency = 0.5
+                        hl.OutlineTransparency = 0
+                        hl.Adornee = diamond
+                        hl.Parent = diamond
+                        diamondHighlights[diamond] = hl
+                    end
+                else activeDiamonds[diamond] = nil end
+            end
+            for d, hl in pairs(diamondHighlights) do
+                if not d or not d.Parent then pcall(function() hl:Destroy() end); diamondHighlights[d] = nil end
+            end
+        else
+            for d, hl in pairs(diamondHighlights) do pcall(function() hl:Destroy() end) end
+            diamondHighlights = {}
+        end
+    end
+end)
+
+-- ==========================================
+-- [[ UI Sounds & Camera ]]
+-- ==========================================
+local ClickSound = Instance.new("Sound", SoundService)
+ClickSound.SoundId = "rbxassetid://6176545137"
+ClickSound.Volume = 1
+local OpenSound = Instance.new("Sound", SoundService)
+OpenSound.SoundId = "rbxassetid://102250334662256"
+OpenSound.Volume = 0.4
+
+local Camera = workspace.CurrentCamera
+
+-- ==========================================
+-- [[ UI Appearance Settings (Kaiju System) ]]
+-- ==========================================
+local SizeIndex = 10
+local CurrentAnimStyle = "2v"
+local TargetGlowColor = Color3.fromRGB(0, 100, 255)
+local CurrentGlowColor = Color3.fromRGB(0, 100, 255)
+local CurrentMainBgColor = Color3.fromRGB(0, 14, 35)
+local GlowAlpha = 0
+
+local function GetDynamicScale()
+    local viewport = Camera.ViewportSize
+    local ratio = 1
+    if viewport.X > 0 and viewport.Y > 0 then
+        ratio = math.min(viewport.X / 1280, viewport.Y / 720)
+    end
+    local scaleVal = 0.5 + (SizeIndex * 0.1)
+    return ratio * scaleVal
+end
+
+local function ApplyResponsiveScale(guiElement)
+    local uiScale = Instance.new("UIScale", guiElement)
+    local function UpdateScale()
+        if Camera then
+            local viewport = Camera.ViewportSize
+            local baseRes = Vector2.new(1280, 720)
+            local scale = math.min(viewport.X / baseRes.X, viewport.Y / baseRes.Y)
+            uiScale.Scale = math.clamp(scale * 1.3, 1.0, 6.25)
+        end
+    end
+    Camera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateScale)
+    UpdateScale()
+end
+
+local function AnimateButton(btn, clickCallback, isColorSquare)
+    local uiScale = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+    local tweenInfoSlow = TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tweenInfoPress = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local activeScaleTween = nil
+    local activeBtnTween = nil
+    local function playTween(targetScale, targetBgTrans, targetTextTrans, speedInfo)
+        if activeScaleTween then activeScaleTween:Cancel() end
+        if activeBtnTween then activeBtnTween:Cancel() end
+        activeScaleTween = TweenService:Create(uiScale, speedInfo, {Scale = targetScale})
+        activeBtnTween = TweenService:Create(btn, speedInfo, {BackgroundTransparency = targetBgTrans, TextTransparency = targetTextTrans})
+        activeScaleTween:Play()
+        activeBtnTween:Play()
+    end
+    local isImage = btn:IsA("ImageButton")
+    local baseBg = isImage and 1 or 0.90
+    local hoverBg = isImage and 1 or 0.96
+    local pressBg = isImage and 1 or 1.0
+    if not isImage then
+        btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        btn.BackgroundTransparency = baseBg
+    end
+    btn.MouseEnter:Connect(function()
+        local isActive = btn:GetAttribute("IsActive")
+        playTween(isActive and 1.10 or 1.04, isActive and 1 or hoverBg, 0, tweenInfoSlow)
+    end)
+    btn.MouseLeave:Connect(function()
+        local isActive = btn:GetAttribute("IsActive")
+        playTween(isActive and 1.10 or 1.0, isActive and 1 or baseBg, 0, tweenInfoSlow)
+    end)
+    btn.MouseButton1Down:Connect(function()
+        local isActive = btn:GetAttribute("IsActive")
+        playTween(isActive and 1.05 or 0.94, pressBg, 0.1, tweenInfoPress)
+    end)
+    btn.MouseButton1Up:Connect(function()
+        local isActive = btn:GetAttribute("IsActive")
+        playTween(isActive and 1.10 or 1.04, hoverBg, 0, tweenInfoSlow)
+    end)
+    btn.MouseButton1Click:Connect(function()
+        ClickSound:Play()
+        if clickCallback then clickCallback() end
+    end)
+end
+
+local BlurEffect = Instance.new("BlurEffect", Lighting)
+BlurEffect.Name = "AcroBlur"
+BlurEffect.Size = 0
+
+local CurrentLang = "EN"
+local UI_Elements = {}
+local AllUIBoxes = {}
+
+-- ==========================================
+-- [[ Settings Save/Load System ]]
+-- ==========================================
+local ConfigFileName = "DinoSimHub_Config.json"
+local CurrentThemeName = "ThemeBlue"
+
+local _G_settings = {
+    FPSUnlocked = false, NoEffects = false, ShowFPSCounter = false,
+    CustomJoystick = false, JoySize = 140, JoyPosX = 20, JoyPosY = -70,
+}
+
+local function SaveConfig()
+    if writefile then
+        local configData = {
+            SizeIndex = SizeIndex,
+            CurrentLang = CurrentLang,
+            CurrentAnimStyle = CurrentAnimStyle,
+            Theme = CurrentThemeName,
+            FPSUnlocked = _G_settings.FPSUnlocked,
+            ShowFPSCounter = _G_settings.ShowFPSCounter,
+            NoEffects = _G_settings.NoEffects,
+            CustomJoystick = _G_settings.CustomJoystick,
+            JoySize = _G_settings.JoySize,
+            JoyPosX = _G_settings.JoyPosX,
+            JoyPosY = _G_settings.JoyPosY,
+        }
+        pcall(function()
+            writefile(ConfigFileName, HttpService:JSONEncode(configData))
+        end)
+    end
+end
+
+local function LoadConfig()
+    if readfile and isfile and isfile(ConfigFileName) then
+        pcall(function()
+            local decoded = HttpService:JSONDecode(readfile(ConfigFileName))
+            if decoded.SizeIndex ~= nil then SizeIndex = decoded.SizeIndex end
+            if decoded.CurrentLang ~= nil then CurrentLang = decoded.CurrentLang end
+            if decoded.CurrentAnimStyle ~= nil then CurrentAnimStyle = decoded.CurrentAnimStyle end
+            if decoded.Theme ~= nil then CurrentThemeName = decoded.Theme end
+            if decoded.FPSUnlocked ~= nil then _G_settings.FPSUnlocked = decoded.FPSUnlocked end
+            if decoded.ShowFPSCounter ~= nil then _G_settings.ShowFPSCounter = decoded.ShowFPSCounter end
+            if decoded.NoEffects ~= nil then _G_settings.NoEffects = decoded.NoEffects end
+            if decoded.CustomJoystick ~= nil then _G_settings.CustomJoystick = decoded.CustomJoystick end
+            if decoded.JoySize ~= nil then _G_settings.JoySize = decoded.JoySize end
+            if decoded.JoyPosX ~= nil then _G_settings.JoyPosX = decoded.JoyPosX end
+            if decoded.JoyPosY ~= nil then _G_settings.JoyPosY = decoded.JoyPosY end
+        end)
+    else
+        SizeIndex = 10
+    end
+end
+
+LoadConfig()
+
+-- ==========================================
+-- [[ Translations ]]
+-- ==========================================
+local Translations = {
+    EN = {
+        Farm = "Farming", Player = "Player", Esp = "ESP", Cred = "Credits", Srvr = "Servers", Set = "Settings",
+        ON = "ON", OFF = "OFF",
+        FoodFarmBtn = "Farm Food (Plant): ",
+        WaterFarmBtn = "Farm Water: ",
+        MeteorFarmBtn = "Farm Meteors: ",
+        MeteorFarm2xBtn = "Farm 2x (Explosions): ",
+        DiamondFarmBtn = "Farm Diamonds: ",
+        AutoRespawnBtn = "Auto Respawn: ",
+        NoStopBtn = "No Stop: ",
+        MeteorEspBtn = "Meteor ESP: ",
+        ShowMeteorCountBtn = "Meteor Counter: ",
+        DiamondEspBtn = "Diamond ESP: ",
+        ShowDiamondCountBtn = "Diamond Counter: ",
+        RefreshSrvrBtn = "Refresh Server List",
+        FPS = "FPS Unlocker", ShowFPS = "FPS Counter: ", NoFx = "Remove Effects",
+        UISizeTitle = "UI SIZE", AnimTitle = "ANIMATIONS", ColorTitle = "COLORS", PerfTitle = "PERFORMANCE",
+        LangTitle = "LANGUAGES",
+        Anim1 = "Anim: Glow (v1)", Anim2 = "Anim: Vortex (v2)", Anim3 = "Anim: Sun (v3)",
+        ThemeBlue = "Theme: Blue", ThemeRed = "Theme: Red", ThemeDarkRed = "Theme: Dark Red",
+    },
+    AR = {
+        Farm = "الفارم", Player = "اللاعب", Esp = "الكشف", Cred = "الحقوق", Srvr = "السيرفرات", Set = "الإعدادات",
+        ON = "مفعل", OFF = "معطل",
+        FoodFarmBtn = "فارم الأكل: ",
+        WaterFarmBtn = "فارم الماء: ",
+        MeteorFarmBtn = "فارم النيازك: ",
+        MeteorFarm2xBtn = "فارم 2x (انفجارات): ",
+        DiamondFarmBtn = "فارم الدايموند: ",
+        AutoRespawnBtn = "رسبون تلقائي: ",
+        NoStopBtn = "بدون توقف: ",
+        MeteorEspBtn = "كشف النيازك: ",
+        ShowMeteorCountBtn = "عداد النيازك: ",
+        DiamondEspBtn = "كشف الدايموند: ",
+        ShowDiamondCountBtn = "عداد الدايموند: ",
+        RefreshSrvrBtn = "تحديث السيرفرات",
+        FPS = "فتح الفريمات", ShowFPS = "عداد الفريمات: ", NoFx = "إزالة التأثيرات",
+        UISizeTitle = "حجم الواجهة", AnimTitle = "التأثيرات الحركية", ColorTitle = "الألوان", PerfTitle = "الأداء",
+        LangTitle = "اللغات",
+        Anim1 = "تأثير: توهج (v1)", Anim2 = "تأثير: دوامة (v2)", Anim3 = "تأثير: شمس (v3)",
+        ThemeBlue = "اللون: أزرق", ThemeRed = "اللون: أحمر", ThemeDarkRed = "اللون: أحمر غامق",
+    },
+    ES = {
+        Farm = "Finca", Player = "Jugador", Esp = "ESP", Cred = "Créditos", Srvr = "Servidores", Set = "Ajustes",
+        ON = "ENCENDIDO", OFF = "APAGADO",
+        FoodFarmBtn = "Farm Comida: ", WaterFarmBtn = "Farm Agua: ", MeteorFarmBtn = "Farm Meteoros: ",
+        MeteorFarm2xBtn = "Farm 2x: ", DiamondFarmBtn = "Farm Diamantes: ", AutoRespawnBtn = "Auto Respawn: ",
+        NoStopBtn = "Sin Parada: ", MeteorEspBtn = "ESP Meteoros: ", ShowMeteorCountBtn = "Contador Meteoros: ",
+        DiamondEspBtn = "ESP Diamantes: ", ShowDiamondCountBtn = "Contador Diamantes: ",
+        RefreshSrvrBtn = "Refrescar Servidores",
+        FPS = "Desbloquear FPS", ShowFPS = "Contador FPS: ", NoFx = "Quitar Efectos",
+        UISizeTitle = "TAMAÑO DE UI", AnimTitle = "ANIMACIONES", ColorTitle = "COLORES", PerfTitle = "RENDIMIENTO",
+        LangTitle = "IDIOMAS",
+        Anim1 = "Animación: Brillo (v1)", Anim2 = "Animación: Vórtice (v2)", Anim3 = "Animación: Sol (v3)",
+        ThemeBlue = "Tema: Azul", ThemeRed = "Tema: Rojo", ThemeDarkRed = "Tema: Rojo Oscuro",
+    },
+    FR = {
+        Farm = "Ferme", Player = "Joueur", Esp = "ESP", Cred = "Crédits", Srvr = "Serveurs", Set = "Paramètres",
+        ON = "ALLUMÉ", OFF = "ÉTEINT",
+        FoodFarmBtn = "Farm Nourriture: ", WaterFarmBtn = "Farm Eau: ", MeteorFarmBtn = "Farm Météores: ",
+        MeteorFarm2xBtn = "Farm 2x: ", DiamondFarmBtn = "Farm Diamants: ", AutoRespawnBtn = "Auto Respawn: ",
+        NoStopBtn = "Sans Arrêt: ", MeteorEspBtn = "ESP Météores: ", ShowMeteorCountBtn = "Compteur Météores: ",
+        DiamondEspBtn = "ESP Diamants: ", ShowDiamondCountBtn = "Compteur Diamants: ",
+        RefreshSrvrBtn = "Actualiser Serveurs",
+        FPS = "Débloquer FPS", ShowFPS = "Compteur FPS: ", NoFx = "Supprimer Effets",
+        UISizeTitle = "TAILLE UI", AnimTitle = "ANIMATIONS", ColorTitle = "COULEURS", PerfTitle = "PERFORMANCES",
+        LangTitle = "LANGUES",
+        Anim1 = "Animation: Éclat (v1)", Anim2 = "Animation: Vortex (v2)", Anim3 = "Animation: Soleil (v3)",
+        ThemeBlue = "Thème: Bleu", ThemeRed = "Thème: Rouge", ThemeDarkRed = "Thème: Rouge Foncé",
+    },
+    DE = {
+        Farm = "Farm", Player = "Spieler", Esp = "ESP", Cred = "Credits", Srvr = "Server", Set = "Einstellungen",
+        ON = "AN", OFF = "AUS",
+        FoodFarmBtn = "Essen Farmen: ", WaterFarmBtn = "Wasser Farmen: ", MeteorFarmBtn = "Meteoriten Farmen: ",
+        MeteorFarm2xBtn = "Farm 2x (Explosionen): ", DiamondFarmBtn = "Diamanten Farmen: ", AutoRespawnBtn = "Auto Respawn: ",
+        NoStopBtn = "Kein Stopp: ", MeteorEspBtn = "Meteoriten ESP: ", ShowMeteorCountBtn = "Meteoriten Zähler: ",
+        DiamondEspBtn = "Diamanten ESP: ", ShowDiamondCountBtn = "Diamanten Zähler: ",
+        RefreshSrvrBtn = "Server Aktualisieren",
+        FPS = "FPS Entsperren", ShowFPS = "FPS Zähler: ", NoFx = "Effekte Entfernen",
+        UISizeTitle = "UI GRÖSSE", AnimTitle = "ANIMATIONEN", ColorTitle = "FARBEN", PerfTitle = "LEISTUNG",
+        LangTitle = "SPRACHEN",
+        Anim1 = "Animation: Glühen (v1)", Anim2 = "Animation: Wirbel (v2)", Anim3 = "Animation: Sonne (v3)",
+        ThemeBlue = "Thema: Blau", ThemeRed = "Thema: Rot", ThemeDarkRed = "Thema: Dunkelrot",
+    },
+    JA = {
+        Farm = "ファーム", Player = "プレイヤー", Esp = "ESP", Cred = "クレジット", Srvr = "サーバー", Set = "設定",
+        ON = "オン", OFF = "オフ",
+        FoodFarmBtn = "食料ファーム: ", WaterFarmBtn = "水ファーム: ", MeteorFarmBtn = "隕石ファーム: ",
+        MeteorFarm2xBtn = "2xファーム (爆発): ", DiamondFarmBtn = "ダイヤファーム: ", AutoRespawnBtn = "自動リスポーン: ",
+        NoStopBtn = "停止なし: ", MeteorEspBtn = "隕石 ESP: ", ShowMeteorCountBtn = "隕石カウンター: ",
+        DiamondEspBtn = "ダイヤ ESP: ", ShowDiamondCountBtn = "ダイヤカウンター: ",
+        RefreshSrvrBtn = "サーバー更新",
+        FPS = "FPSロック解除", ShowFPS = "FPSカウンター: ", NoFx = "エフェクト削除",
+        UISizeTitle = "UI サイズ", AnimTitle = "アニメーション", ColorTitle = "色", PerfTitle = "パフォーマンス",
+        LangTitle = "言語",
+        Anim1 = "アニメーション: 発光 (v1)", Anim2 = "アニメーション: 渦 (v2)", Anim3 = "アニメーション: 太陽 (v3)",
+        ThemeBlue = "テーマ: 青", ThemeRed = "テーマ: 赤", ThemeDarkRed = "テーマ: ダークレッド",
+    },
+    ZH = {
+        Farm = "农场", Player = "玩家", Esp = "透视", Cred = "鸣谢", Srvr = "服务器", Set = "设置",
+        ON = "开启", OFF = "关闭",
+        FoodFarmBtn = "食物农场: ", WaterFarmBtn = "水源农场: ", MeteorFarmBtn = "陨石农场: ",
+        MeteorFarm2xBtn = "2x农场 (爆炸): ", DiamondFarmBtn = "钻石农场: ", AutoRespawnBtn = "自动复活: ",
+        NoStopBtn = "无停止: ", MeteorEspBtn = "陨石透视: ", ShowMeteorCountBtn = "陨石计数器: ",
+        DiamondEspBtn = "钻石透视: ", ShowDiamondCountBtn = "钻石计数器: ",
+        RefreshSrvrBtn = "刷新服务器",
+        FPS = "解锁帧率", ShowFPS = "帧率显示: ", NoFx = "移除特效",
+        UISizeTitle = "UI 尺寸", AnimTitle = "动画", ColorTitle = "颜色", PerfTitle = "性能",
+        LangTitle = "语言",
+        Anim1 = "动画: 发光 (v1)", Anim2 = "动画: 旋涡 (v2)", Anim3 = "动画: 太阳 (v3)",
+        ThemeBlue = "主题: 蓝", ThemeRed = "主题: 红", ThemeDarkRed = "主题: 深红",
+    },
+    RU = {
+        Farm = "Фарм", Player = "Игрок", Esp = "ESP", Cred = "Авторы", Srvr = "Серверы", Set = "Настройки",
+        ON = "ВКЛ", OFF = "ВЫКЛ",
+        FoodFarmBtn = "Фарм Еды: ", WaterFarmBtn = "Фарм Воды: ", MeteorFarmBtn = "Фарм Метеоритов: ",
+        MeteorFarm2xBtn = "Фарм 2x (Взрывы): ", DiamondFarmBtn = "Фарм Алмазов: ", AutoRespawnBtn = "Авто Респавн: ",
+        NoStopBtn = "Без Остановки: ", MeteorEspBtn = "Метеорит ESP: ", ShowMeteorCountBtn = "Счётчик Метеоритов: ",
+        DiamondEspBtn = "Алмаз ESP: ", ShowDiamondCountBtn = "Счётчик Алмазов: ",
+        RefreshSrvrBtn = "Обновить Серверы",
+        FPS = "Разблок. FPS", ShowFPS = "Счетчик FPS: ", NoFx = "Убрать Эффекты",
+        UISizeTitle = "РАЗМЕР UI", AnimTitle = "АНИМАЦИИ", ColorTitle = "ЦВЕТА", PerfTitle = "ПРОИЗВОДИТЕЛЬНОСТЬ",
+        LangTitle = "ЯЗЫКИ",
+        Anim1 = "Анимация: Свечение (v1)", Anim2 = "Анимация: Вихрь (v2)", Anim3 = "Анимация: Солнце (v3)",
+        ThemeBlue = "Тема: Синий", ThemeRed = "Тема: Красный", ThemeDarkRed = "Тема: Темно-красный",
+    },
+    TR = {
+        Farm = "Çiftlik", Player = "Oyuncu", Esp = "ESP", Cred = "Krediler", Srvr = "Sunucular", Set = "Ayarlar",
+        ON = "AÇIK", OFF = "KAPALI",
+        FoodFarmBtn = "Yiyecek Farm: ", WaterFarmBtn = "Su Farm: ", MeteorFarmBtn = "Meteor Farm: ",
+        MeteorFarm2xBtn = "2x Farm (Patlamalar): ", DiamondFarmBtn = "Elmas Farm: ", AutoRespawnBtn = "Oto Yeniden Doğ: ",
+        NoStopBtn = "Durmadan: ", MeteorEspBtn = "Meteor ESP: ", ShowMeteorCountBtn = "Meteor Sayacı: ",
+        DiamondEspBtn = "Elmas ESP: ", ShowDiamondCountBtn = "Elmas Sayacı: ",
+        RefreshSrvrBtn = "Sunucuları Yenile",
+        FPS = "FPS Kilidini Aç", ShowFPS = "FPS Sayacı: ", NoFx = "Efektleri Kaldır",
+        UISizeTitle = "ARAYÜZ BOYUTU", AnimTitle = "ANİMASYONLAR", ColorTitle = "RENKLER", PerfTitle = "PERFORMANS",
+        LangTitle = "DİLLER",
+        Anim1 = "Animasyon: Parlama (v1)", Anim2 = "Animasyon: Girdap (v2)", Anim3 = "Animasyon: Güneş (v3)",
+        ThemeBlue = "Tema: Mavi", ThemeRed = "Tema: Kırmızı", ThemeDarkRed = "Tema: Koyu Kırmızı",
+    },
+    HI = {
+        Farm = "फार्म", Player = "खिलाड़ी", Esp = "ESP", Cred = "क्रेडिट", Srvr = "सर्वर", Set = "सेटिंग्स",
+        ON = "चालू", OFF = "बंद",
+        FoodFarmBtn = "खाना फार्म: ", WaterFarmBtn = "पानी फार्म: ", MeteorFarmBtn = "उल्कापिंड फार्म: ",
+        MeteorFarm2xBtn = "2x फार्म (विस्फोट): ", DiamondFarmBtn = "हीरा फार्म: ", AutoRespawnBtn = "ऑटो रीस्पॉन: ",
+        NoStopBtn = "बिना रुके: ", MeteorEspBtn = "उल्कापिंड ESP: ", ShowMeteorCountBtn = "उल्कापिंड काउंटर: ",
+        DiamondEspBtn = "हीरा ESP: ", ShowDiamondCountBtn = "हीरा काउंटर: ",
+        RefreshSrvrBtn = "सर्वर रिफ्रेश करें",
+        FPS = "FPS अनलॉक", ShowFPS = "FPS काउंटर: ", NoFx = "प्रभाव हटाएं",
+        UISizeTitle = "UI आकार", AnimTitle = "एनिमेशन", ColorTitle = "रंग", PerfTitle = "प्रदर्शन",
+        LangTitle = "भाषाएँ",
+        Anim1 = "एनिमेशन: ग्लो (v1)", Anim2 = "एनिमेशन: भंवर (v2)", Anim3 = "एनिमेशन: सूरज (v3)",
+        ThemeBlue = "थीम: नीला", ThemeRed = "थीम: लाल", ThemeDarkRed = "थीम: गहरा लाल",
+    },
+}
+
+-- ==========================================
+-- [[ BgFrame & ShowModeMsg (Kaiju Style) ]]
+-- ==========================================
+local BgFrame = Instance.new("Frame", ScreenGui)
+BgFrame.Size = UDim2.new(1, 0, 1, 0)
+BgFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+BgFrame.BackgroundTransparency = 1
+BgFrame.ZIndex = -1
+BgFrame.Visible = false
+BgFrame.Active = false
+
+local function ShowModeMsg(txt)
+    if ScreenGui:FindFirstChild("ModeNotify") then ScreenGui.ModeNotify:Destroy() end
+    local msg = Instance.new("TextLabel", ScreenGui)
+    msg.Name = "ModeNotify"
+    msg.Size = UDim2.new(0, 400, 0, 60)
+    msg.Position = UDim2.new(0.5, -200, 0.8, 0)
+    msg.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+    msg.TextColor3 = Color3.fromRGB(255, 255, 255)
+    msg.Text = txt
+    msg.Font = Enum.Font.Gotham
+    SafeTextScale(msg, 10)
+    msg.TextWrapped = true
+    Instance.new("UICorner", msg)
+    msg.BackgroundTransparency = 1
+    msg.TextTransparency = 1
+    msg.ZIndex = 50000
+    ApplyResponsiveScale(msg)
+    TweenService:Create(msg, TweenInfo.new(0.3), {BackgroundTransparency = 1, TextTransparency = 0}):Play()
+    task.delay(4.5, function()
+        if msg then
+            TweenService:Create(msg, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+            task.wait(0.3)
+            msg:Destroy()
+        end
+    end)
+end
+
+-- ==========================================
+-- [[ Custom Button ]]
+-- ==========================================
+local CustomBtn = Instance.new("ImageButton", ScreenGui)
+CustomBtn.AnchorPoint = Vector2.new(0.5, 0)
+CustomBtn.Size = UDim2.new(0, 70, 0, 40)
+CustomBtn.Position = UDim2.new(0.5, 0, 0, 10)
+CustomBtn.BackgroundTransparency = 1
+CustomBtn.Image = "rbxthumb://type=Asset&id=87319366743057&w=768&h=432"
+CustomBtn.ScaleType = Enum.ScaleType.Fit
+CustomBtn.Visible = false; CustomBtn.Draggable = false
+CustomBtn.ZIndex = 10000
+AnimateButton(CustomBtn, nil, false)
+ApplyResponsiveScale(CustomBtn)
+
+-- ==========================================
+-- [[ Display Labels ]]
+-- ==========================================
+local MeteorCountDisplay = Instance.new("TextLabel", ScreenGui)
+MeteorCountDisplay.Size = UDim2.new(0, 120, 0, 26)
+MeteorCountDisplay.Position = UDim2.new(1, -10, 0, 40)
+MeteorCountDisplay.AnchorPoint = Vector2.new(1, 0)
+MeteorCountDisplay.BackgroundTransparency = 1
+MeteorCountDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+MeteorCountDisplay.Font = Enum.Font.Gotham
+SafeTextScale(MeteorCountDisplay, 9)
+MeteorCountDisplay.Text = "Meteors: 0"
+MeteorCountDisplay.Visible = false; MeteorCountDisplay.ZIndex = 10000
+Instance.new("UICorner", MeteorCountDisplay).CornerRadius = UDim.new(0, 4)
+ApplyResponsiveScale(MeteorCountDisplay)
+
+local DiamondCountDisplay = Instance.new("TextLabel", ScreenGui)
+DiamondCountDisplay.Size = UDim2.new(0, 120, 0, 26)
+DiamondCountDisplay.Position = UDim2.new(1, -10, 0, 70)
+DiamondCountDisplay.AnchorPoint = Vector2.new(1, 0)
+DiamondCountDisplay.BackgroundTransparency = 1
+DiamondCountDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+DiamondCountDisplay.Font = Enum.Font.Gotham
+SafeTextScale(DiamondCountDisplay, 9)
+DiamondCountDisplay.Text = "Diamonds: 0"
+DiamondCountDisplay.Visible = false; DiamondCountDisplay.ZIndex = 10000
+Instance.new("UICorner", DiamondCountDisplay).CornerRadius = UDim.new(0, 4)
+ApplyResponsiveScale(DiamondCountDisplay)
+
+local FPSDisplay = Instance.new("TextLabel", ScreenGui)
+FPSDisplay.Size = UDim2.new(0, 80, 0, 26)
+FPSDisplay.Position = UDim2.new(1, -10, 0, 10)
+FPSDisplay.AnchorPoint = Vector2.new(1, 0)
+FPSDisplay.BackgroundTransparency = 1
+FPSDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+FPSDisplay.Font = Enum.Font.Gotham
+SafeTextScale(FPSDisplay, 9)
+FPSDisplay.Text = "FPS: 60"
+FPSDisplay.Visible = false; FPSDisplay.ZIndex = 10000
+Instance.new("UICorner", FPSDisplay).CornerRadius = UDim.new(0, 4)
+ApplyResponsiveScale(FPSDisplay)
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if Settings.ShowMeteorCount then MeteorCountDisplay.Text = "Meteors: " .. getValidMeteorCount() end
+        if Settings.ShowDiamondCount then DiamondCountDisplay.Text = "Diamonds: " .. getValidDiamondCount() end
+    end
+end)
+
+-- ==========================================
+-- [[ Main Frame ]]
+-- ==========================================
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Name = "MainFrame"
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0, 0, 0, 0)
+MainFrame.BackgroundColor3 = CurrentMainBgColor
+MainFrame.BackgroundTransparency = 0.02
+MainFrame.Visible = false; MainFrame.Active = true
+MainFrame.Draggable = false; MainFrame.ZIndex = 100
+MainFrame.ClipsDescendants = true
+Instance.new("UICorner", MainFrame)
+table.insert(AllUIBoxes, MainFrame)
+
+local MainUIScale = Instance.new("UIScale", MainFrame)
+MainUIScale.Scale = GetDynamicScale()
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function() MainUIScale.Scale = GetDynamicScale() end)
+
+-- ==========================================
+-- [[ Kaiju Glow Animation System ]]
+-- ==========================================
+local GlowContainer = Instance.new("Frame")
+GlowContainer.Name = "GlowContainer"
+GlowContainer.Parent = MainFrame
+GlowContainer.BackgroundTransparency = 1
+GlowContainer.Size = UDim2.new(1, 0, 1, 0)
+GlowContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+GlowContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+GlowContainer.ZIndex = 3
+
+local TotalLayers = 150
+local LayersData = {}
+local ZoomRatio = 2
+
+for i = 1, TotalLayers do
+    local Layer = Instance.new("Frame")
+    Layer.Parent = GlowContainer
+    Layer.AnchorPoint = Vector2.new(0.5, 0.5)
+    Layer.BorderSizePixel = 0
+    Layer.ZIndex = 4
+    local baseSize = (40 + (i * 2.5)) * ZoomRatio
+    Layer.Size = UDim2.new(0, baseSize, 0, baseSize)
+    local progress = (TotalLayers - i) / TotalLayers
+    Layer.BackgroundTransparency = 1
+    Instance.new("UICorner", Layer).CornerRadius = UDim.new(1, 0)
+    table.insert(LayersData, { Instance = Layer, BaseSize = baseSize, OffsetFactor = (i / TotalLayers), Progress = progress })
+end
+
+task.spawn(function()
+    local timeCounter = 0
+    while true do
+        timeCounter = timeCounter + 0.007
+        CurrentGlowColor = CurrentGlowColor:Lerp(TargetGlowColor, 0.03)
+        for _, data in pairs(LayersData) do
+            if data.Instance and data.Instance.Parent then
+                local offsetX, offsetY, sizePulse
+                if CurrentAnimStyle == "1v" then
+                    local waveAngle = timeCounter * 0.6 + (data.OffsetFactor * math.pi * 1.5)
+                    offsetX = math.sin(waveAngle) * 120
+                    offsetY = math.cos(waveAngle * 0.5) * 40
+                    sizePulse = 1 + (math.sin(waveAngle * 0.8) * 0.12)
+                elseif CurrentAnimStyle == "2v" then
+                    local waveAngle = timeCounter * 1.2 + (data.OffsetFactor * math.pi * 2.5)
+                    offsetX = math.sin(waveAngle) * 80
+                    offsetY = math.cos(waveAngle * 0.8) * 80
+                    sizePulse = 1 + (math.sin(timeCounter * 1.5 + data.OffsetFactor) * 0.25)
+                elseif CurrentAnimStyle == "3v" then
+                    local speed = 0.15 + (data.OffsetFactor * 0.35)
+                    local seed = data.OffsetFactor * 100
+                    local layerAngle = timeCounter * (speed * 1) + seed
+                    offsetX = (math.sin(layerAngle) * 40) - 50
+                    offsetY = math.cos(layerAngle * 0.8) * 20
+                    sizePulse = 1 + (math.sin(layerAngle * 1.2) * 0.25)
+                end
+                local distanceFactor = 0.8 * ZoomRatio * 1.5
+                data.Instance.Position = UDim2.new(0.5, offsetX * distanceFactor, 0.5, offsetY * distanceFactor)
+                local currentSize = data.BaseSize * sizePulse
+                data.Instance.Size = UDim2.new(0, currentSize, 0, currentSize)
+                local baseTrans = 0.983 + (data.Progress * 0.008)
+                local finalTrans = 1 - ((1 - baseTrans) * GlowAlpha)
+                data.Instance.BackgroundTransparency = finalTrans
+                data.Instance.BackgroundColor3 = CurrentGlowColor
+            end
+        end
+        task.wait()
+    end
+end)
+
+-- ==========================================
+-- [[ ApplyColorTheme ]]
+-- ==========================================
+local function ApplyColorTheme(glowColor)
+    TargetGlowColor = glowColor
+    local r, g, b = glowColor.R, glowColor.G, glowColor.B
+    local mainColor = Color3.new(r * 0.14, g * 0.14, b * 0.14)
+    CurrentMainBgColor = mainColor
+    local ti = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    for _, box in pairs(AllUIBoxes) do
+        if box and box:IsA("Frame") and box.Name == "MainFrame" then
+            TweenService:Create(box, ti, {BackgroundColor3 = mainColor}):Play()
+        end
+    end
+end
+
+local HubTitle = Instance.new("TextLabel", MainFrame)
+HubTitle.Size = UDim2.new(1, 0, 0, 40)
+HubTitle.Position = UDim2.new(0, 0, 0, -40)
+HubTitle.BackgroundTransparency = 1
+HubTitle.Text = "ACROCAN0 HUB"
+HubTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+HubTitle.Font = Enum.Font.Gotham
+SafeTextScale(HubTitle, 13)
+HubTitle.ZIndex = 101
+
+local isHubOpen = false
+local function ToggleMainHub()
+    isHubOpen = not isHubOpen
+    if isHubOpen then
+        OpenSound:Play()
+        BgFrame.Visible = true; BgFrame.Active = true
+        MainFrame.Visible = true
+        GlowAlpha = 1
+        TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 580, 0, 300)}):Play()
+        TweenService:Create(BlurEffect, TweenInfo.new(0.5), {Size = 18}):Play()
+        TweenService:Create(BgFrame, TweenInfo.new(0.5), {BackgroundTransparency = 0.35}):Play()
+    else
+        BgFrame.Active = false
+        GlowAlpha = 0
+        local closeTween = TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)})
+        closeTween:Play()
+        TweenService:Create(BlurEffect, TweenInfo.new(0.4), {Size = 0}):Play()
+        TweenService:Create(BgFrame, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+        closeTween.Completed:Wait()
+        if not isHubOpen then MainFrame.Visible = false; BgFrame.Visible = false end
+    end
+end
+
+AnimateButton(CustomBtn, ToggleMainHub, false)
+
+-- ==========================================
+-- [[ Tab Builder ]]
+-- ==========================================
+local function MakeTab(key, x, parentHold, width) 
+    local b = Instance.new("TextButton", parentHold)
+    b.Size = UDim2.new(width, 0, 1, 0)
+    b.Position = UDim2.new(x, 0, 0, 0)
+    b.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    b.BackgroundTransparency = 0.90
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.Font = Enum.Font.Gotham
+    SafeTextScale(b, 9)
+    b.ZIndex = 102
+    UI_Elements[key] = b
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+    b:SetAttribute("IsActive", false)
+    Instance.new("UIScale", b)
+    AnimateButton(b, nil, false)
+    return b 
+end
+
+local TabHold = Instance.new("Frame", MainFrame)
+TabHold.Size = UDim2.new(1, 0, 0, 45)
+TabHold.BackgroundTransparency = 1
+TabHold.ZIndex = 101
+
+local tabWidth = 0.167
+MakeTab("Farm", 0 * tabWidth, TabHold, tabWidth)
+MakeTab("Player", 1 * tabWidth, TabHold, tabWidth) 
+MakeTab("Esp", 2 * tabWidth, TabHold, tabWidth) 
+MakeTab("Srvr", 3 * tabWidth, TabHold, tabWidth) 
+MakeTab("Set", 4 * tabWidth, TabHold, tabWidth)
+MakeTab("Cred", 5 * tabWidth, TabHold, tabWidth)
+
+local function MakePage() 
+    local cg = Instance.new("CanvasGroup", MainFrame)
+    cg.Size = UDim2.new(1, -20, 1, -55)
+    cg.Position = UDim2.new(0, 10, 0, 45)
+    cg.BackgroundTransparency = 1
+    cg.GroupTransparency = 1
+    cg.Visible = false; cg.ZIndex = 101
+
+    local p = Instance.new("ScrollingFrame", cg)
+    p.Size = UDim2.new(1, 0, 1, 0)
+    p.BackgroundTransparency = 1
+    p.BorderSizePixel = 0
+    p.ScrollBarThickness = 3
+    p.ScrollBarImageTransparency = 0.90
+    p.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    p.CanvasSize = UDim2.new(0, 0, 0, 0)
+    p.ZIndex = 101
+    local scrollPadding = Instance.new("UIPadding", p)
+    scrollPadding.PaddingBottom = UDim.new(0, 60)
+    return p, cg
+end
+
+local FarmP, FarmCG = MakePage()
+local PlayerP, PlayerCG = MakePage()
+local EspP, EspCG = MakePage()
+local SrvrP, SrvrCG = MakePage()
+local SetP, SetCG = MakePage()
+local CredP, CredCG = MakePage()
+
+local function NewBtn(k, p, c) 
+    local b = Instance.new("TextButton", p)
+    b.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    b.BackgroundTransparency = 0.90
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.Font = Enum.Font.Gotham; SafeTextScale(b, 9); b.ZIndex = 102
+    b.Text = k
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+    UI_Elements[k] = b
+    AnimateButton(b, c, false)
+    table.insert(AllUIBoxes, b)
+    return b
+end
+
+-- ==========================================
+-- [[ Refresh ]]
+-- ==========================================
+local function Refresh()
+    local T = Translations[CurrentLang] or Translations.EN
+    for k, e in pairs(UI_Elements) do
+        if k == "NoStopBtn" then e.Text = T.NoStopBtn .. (NoStopEnabled and T.ON or T.OFF)
+        elseif k == "FoodFarmBtn" then e.Text = T.FoodFarmBtn .. (Settings.FoodFarm and T.ON or T.OFF)
+        elseif k == "WaterFarmBtn" then e.Text = T.WaterFarmBtn .. (Settings.WaterFarm and T.ON or T.OFF)
+        elseif k == "MeteorFarmBtn" then e.Text = T.MeteorFarmBtn .. (Settings.MeteorFarmBiggest and T.ON or T.OFF)
+        elseif k == "MeteorFarm2xBtn" then e.Text = T.MeteorFarm2xBtn .. (Settings.MeteorFarmClosest and T.ON or T.OFF)
+        elseif k == "DiamondFarmBtn" then e.Text = T.DiamondFarmBtn .. (Settings.DiamondFarm and T.ON or T.OFF)
+        elseif k == "AutoRespawnBtn" then e.Text = T.AutoRespawnBtn .. (Settings.AutoRespawn and T.ON or T.OFF)
+        elseif k == "MeteorEspBtn" then e.Text = T.MeteorEspBtn .. (Settings.MeteorESP and T.ON or T.OFF)
+        elseif k == "ShowMeteorCountBtn" then e.Text = T.ShowMeteorCountBtn .. (Settings.ShowMeteorCount and T.ON or T.OFF)
+        elseif k == "DiamondEspBtn" then e.Text = T.DiamondEspBtn .. (Settings.DiamondESP and T.ON or T.OFF)
+        elseif k == "ShowDiamondCountBtn" then e.Text = T.ShowDiamondCountBtn .. (Settings.ShowDiamondCount and T.ON or T.OFF)
+        elseif k == "ShowFPS" then e.Text = T.ShowFPS .. (_G_settings.ShowFPSCounter and T.ON or T.OFF)
+        elseif e:IsA("TextLabel") or e:IsA("TextButton") then e.Text = T[k] or e.Text
+        end
+    end
+    MeteorCountDisplay.Visible = Settings.ShowMeteorCount
+    DiamondCountDisplay.Visible = Settings.ShowDiamondCount
+    FPSDisplay.Visible = _G_settings.ShowFPSCounter
+end
+
+-- ==========================================
+-- [[ MakeAccordion ]]
+-- ==========================================
+local function MakeAccordion(parent, titleText)
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, -10, 0, 45)
+    container.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    container.BackgroundTransparency = 1
+    container.ClipsDescendants = true
+    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 4)
+    table.insert(AllUIBoxes, container)
+
+    local headerBtn = Instance.new("TextButton", container)
+    headerBtn:SetAttribute("TitleKey", titleText)
+    headerBtn:SetAttribute("IsOpen", false)
+    headerBtn.Size = UDim2.new(1, 0, 0, 45)
+    headerBtn.BackgroundTransparency = 0.90
+    headerBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    headerBtn.Text = "➡  " .. titleText
+    headerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    headerBtn.Font = Enum.Font.Gotham
+    SafeTextScale(headerBtn, 9)
+    headerBtn.TextXAlignment = Enum.TextXAlignment.Left
+    headerBtn.ZIndex = 105
+    local padding = Instance.new("UIPadding", headerBtn)
+    padding.PaddingLeft = UDim.new(0, 15)
+    local headerScale = Instance.new("UIScale", headerBtn)
+    headerBtn:SetAttribute("IsActive", false)
+
+    local contentHold = Instance.new("Frame", container)
+    contentHold.Size = UDim2.new(1, 0, 1, -45)
+    contentHold.Position = UDim2.new(0, 0, 0, 45)
+    contentHold.BackgroundTransparency = 1
+    local grid = Instance.new("UIGridLayout", contentHold)
+    grid.CellSize = UDim2.new(0, 245, 0, 50)
+    grid.CellPadding = UDim2.new(0, 10, 0, 10)
+    grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    local isOpen = false
+
+    AnimateButton(headerBtn, function()
+        isOpen = not isOpen
+        headerBtn:SetAttribute("IsActive", isOpen)
+        headerBtn:SetAttribute("IsOpen", isOpen)
+        if isOpen then
+            headerBtn.Text = "⬇  " .. titleText
+            local contentHeight = grid.AbsoluteContentSize.Y + 45
+            TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -10, 0, 45 + contentHeight)}):Play()
+            TweenService:Create(headerScale, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Scale = 1.05}):Play()
+            TweenService:Create(headerBtn, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {BackgroundTransparency = 1}):Play()
+        else
+            headerBtn.Text = "➡  " .. titleText
+            TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -10, 0, 45)}):Play()
+            TweenService:Create(headerScale, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Scale = 1.0}):Play()
+            TweenService:Create(headerBtn, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {BackgroundTransparency = 0.90}):Play()
+        end
+    end, false)
+
+    grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        if isOpen then
+            local contentHeight = grid.AbsoluteContentSize.Y + 45
+            container.Size = UDim2.new(1, -10, 0, 45 + contentHeight)
+        end
+    end)
+    return contentHold
+end
+
+-- ==========================================
+-- [[ Player Sliders ]]
+-- ==========================================
+local function CreatePlayerSlider(parent, name, min, max, startVal, callback)
+    local container = Instance.new("Frame", parent)
+    container.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    container.BackgroundTransparency = 0.90
+    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 4)
+
+    local label = Instance.new("TextLabel", container)
+    label.Size = UDim2.new(1, -10, 0, 25)
+    label.Position = UDim2.new(0, 5, 0, 5)
+    label.BackgroundTransparency = 1
+    label.Text = name .. ": " .. startVal
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Font = Enum.Font.Gotham
+    SafeTextScale(label, 8)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local sliderBg = Instance.new("Frame", container)
+    sliderBg.Size = UDim2.new(1, -20, 0, 8)
+    sliderBg.Position = UDim2.new(0, 10, 0, 32)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    sliderBg.BackgroundTransparency = 0.80
+    sliderBg.BorderSizePixel = 0
+    Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame", sliderBg)
+    local perc = (startVal - min) / (max - min)
+    fill.Size = UDim2.new(perc, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    fill.BackgroundTransparency = 0.80
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local isDragging = false
+    local function updateSlider(input)
+        local relativeX = input.Position.X - sliderBg.AbsolutePosition.X
+        local clampedX = math.clamp(relativeX, 0, sliderBg.AbsoluteSize.X)
+        local p = clampedX / sliderBg.AbsoluteSize.X
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        local val = math.floor(min + (max - min) * p)
+        label.Text = name .. ": " .. val
+        callback(val)
+    end
+
+    sliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true; updateSlider(input)
+        end
+    end)
+    fill.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true; updateSlider(input)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateSlider(input)
+        end
+    end)
+end
+
+-- ==========================================
+-- [[ Farm Page ]]
+-- ==========================================
+local FarmList = Instance.new("UIListLayout", FarmP)
+FarmList.Padding = UDim.new(0, 10)
+FarmList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+FarmList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local FoodWaterContent = MakeAccordion(FarmP, "FOOD & WATER")
+NewBtn("FoodFarmBtn", FoodWaterContent, function() Settings.FoodFarm = not Settings.FoodFarm; Refresh() end)
+NewBtn("WaterFarmBtn", FoodWaterContent, function() Settings.WaterFarm = not Settings.WaterFarm; Refresh() end)
+
+local MeteorFarmContent = MakeAccordion(FarmP, "METEOR FARMING")
+NewBtn("MeteorFarmBtn", MeteorFarmContent, function() 
+    Settings.MeteorFarmBiggest = not Settings.MeteorFarmBiggest
+    if Settings.MeteorFarmBiggest then Settings.MeteorFarmClosest = false end 
+    Refresh() 
+end)
+NewBtn("MeteorFarm2xBtn", MeteorFarmContent, function() 
+    Settings.MeteorFarmClosest = not Settings.MeteorFarmClosest
+    if Settings.MeteorFarmClosest then Settings.MeteorFarmBiggest = false end 
+    Refresh() 
+end)
+
+local DiamondFarmContent = MakeAccordion(FarmP, "DIAMOND FARMING")
+NewBtn("DiamondFarmBtn", DiamondFarmContent, function() Settings.DiamondFarm = not Settings.DiamondFarm; Refresh() end)
+
+local FarmToolsContent = MakeAccordion(FarmP, "FARMING TOOLS")
+NewBtn("AutoRespawnBtn", FarmToolsContent, function() Settings.AutoRespawn = not Settings.AutoRespawn; Refresh() end)
+
+-- ==========================================
+-- [[ Player Page ]]
+-- ==========================================
+local PlayerList = Instance.new("UIListLayout", PlayerP)
+PlayerList.Padding = UDim.new(0, 10)
+PlayerList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+PlayerList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local PlayerContent = MakeAccordion(PlayerP, "CHARACTER MODS")
+NewBtn("NoStopBtn", PlayerContent, function() NoStopEnabled = not NoStopEnabled; Refresh() end)
+
+CreatePlayerSlider(PlayerContent, "Speed", 16, 60, 16, function(val)
+    forceSpeed = val
+    isSpeedForced = val > 16
+end)
+CreatePlayerSlider(PlayerContent, "Jump", 50, 60, 50, function(val)
+    forceJump = val
+    isJumpForced = val > 50
+end)
+
+-- ==========================================
+-- [[ ESP Page ]]
+-- ==========================================
+local EspList = Instance.new("UIListLayout", EspP)
+EspList.Padding = UDim.new(0, 10)
+EspList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+EspList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local MeteorEspContent = MakeAccordion(EspP, "METEOR ESP")
+NewBtn("MeteorEspBtn", MeteorEspContent, function() Settings.MeteorESP = not Settings.MeteorESP; Refresh() end)
+NewBtn("ShowMeteorCountBtn", MeteorEspContent, function() Settings.ShowMeteorCount = not Settings.ShowMeteorCount; Refresh() end)
+
+local DiamondEspContent = MakeAccordion(EspP, "DIAMOND ESP")
+NewBtn("DiamondEspBtn", DiamondEspContent, function() Settings.DiamondESP = not Settings.DiamondESP; Refresh() end)
+NewBtn("ShowDiamondCountBtn", DiamondEspContent, function() Settings.ShowDiamondCount = not Settings.ShowDiamondCount; Refresh() end)
+
+-- ==========================================
+-- [[ Server Page ]]
+-- ==========================================
+local SrvrList = Instance.new("UIListLayout", SrvrP)
+SrvrList.Padding = UDim.new(0, 10)
+SrvrList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SrvrList.SortOrder = Enum.SortOrder.LayoutOrder
+
+local ServerBrowserContent = MakeAccordion(SrvrP, "SERVER BROWSER")
+local ServerButtons = {}
+
+NewBtn("RefreshSrvrBtn", ServerBrowserContent, function()
+    for _, btn in pairs(ServerButtons) do if btn and btn.Parent then btn:Destroy() end end
+    ServerButtons = {}
+    ShowModeMsg("Fetching servers...")
+    task.spawn(function()
+        local success, result = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Desc&excludeFullGames=true&limit=100"))
+        end)
+        if success and result and result.data then
+            table.sort(result.data, function(a, b) return (a.playing or 0) > (b.playing or 0) end)
+            local serverCounter = 1
+            for _, srv in ipairs(result.data) do
+                if srv.playing < srv.maxPlayers and srv.id ~= game.JobId then
+                    local b = Instance.new("TextButton", ServerBrowserContent)
+                    b.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                    b.BackgroundTransparency = 0.90
+                    b.TextColor3 = Color3.new(1, 1, 1)
+                    b.Font = Enum.Font.Gotham
+                    b.TextScaled = true
+                    local constraint = Instance.new("UITextSizeConstraint", b)
+                    constraint.MaxTextSize = 14; constraint.MinTextSize = 6
+                    b.ZIndex = 102
+                    b.Text = "Server: " .. tostring(serverCounter) .. " [" .. srv.playing .. "/" .. srv.maxPlayers .. " Players]"
+                    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+                    AnimateButton(b, function()
+                        ShowModeMsg("Teleporting to Server " .. tostring(serverCounter) .. "...")
+                        TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, lp)
+                    end, false)
+                    table.insert(ServerButtons, b)
+                    serverCounter = serverCounter + 1
+                end
+            end
+            ShowModeMsg("Servers Loaded!")
+        else ShowModeMsg("Failed to load servers!") end
+    end)
+end)
+
+-- ==========================================
+-- [[ Credits Page ]]
+-- ==========================================
+local cl = Instance.new("TextLabel", CredP)
+cl.Size = UDim2.new(1, -20, 0, 100)
+cl.Position = UDim2.new(0, 10, 0, 10)
+cl.BackgroundTransparency = 1
+cl.TextColor3 = Color3.new(1, 1, 1)
+cl.Text = "Owner: acrocan0\nTikTok: @acrocan0"
+cl.Font = Enum.Font.Gotham
+SafeTextScale(cl, 9)
+cl.TextXAlignment = Enum.TextXAlignment.Left
+cl.TextYAlignment = Enum.TextYAlignment.Top
+cl.ZIndex = 102
+
+-- ==========================================
+-- [[ Settings Page (Kaiju Style) ]]
+-- ==========================================
+local SetList = Instance.new("UIListLayout", SetP)
+SetList.Padding = UDim.new(0, 10)
+SetList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SetList.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Languages
+local LangContent = MakeAccordion(SetP, "LANGUAGES")
+local LangButtons = {}
+local LangList = {"English", "Arabic", "Spanish", "French", "German", "Japanese", "Chinese", "Russian", "Turkish", "Hindi"}
+local LangCodes = {English="EN", Arabic="AR", Spanish="ES", French="FR", German="DE", Japanese="JA", Chinese="ZH", Russian="RU", Turkish="TR", Hindi="HI"}
+
+local function UpdateLangVisuals()
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    for name, btn in pairs(LangButtons) do
+        local scaleObj = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+        if CurrentLang == LangCodes[name] then
+            btn:SetAttribute("IsActive", true)
+            TweenService:Create(btn, ti, {BackgroundTransparency = 1}):Play()
+            if scaleObj then TweenService:Create(scaleObj, ti, {Scale = 1.10}):Play() end
+        else
+            btn:SetAttribute("IsActive", false)
+            TweenService:Create(btn, ti, {BackgroundTransparency = 0.90}):Play()
+            if scaleObj then TweenService:Create(scaleObj, ti, {Scale = 1.0}):Play() end
+        end
+    end
+end
+
+for _, langName in ipairs(LangList) do
+    local btn = NewBtn(langName, LangContent, function()
+        CurrentLang = LangCodes[langName]
+        UpdateLangVisuals()
+        Refresh()
+        SaveConfig()
+    end)
+    LangButtons[langName] = btn
+end
+UpdateLangVisuals()
+
+-- UI Size
+local SizeContent = MakeAccordion(SetP, "UI SIZE")
+local SizeControlFrame = Instance.new("Frame", SizeContent)
+SizeControlFrame.BackgroundTransparency = 1
+
+local MinusBtn = Instance.new("TextButton", SizeControlFrame)
+MinusBtn.Size = UDim2.new(0, 45, 1, 0); MinusBtn.Position = UDim2.new(0, 0, 0, 0)
+MinusBtn.Text = "-"; MinusBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MinusBtn.BackgroundTransparency = 0.90; MinusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinusBtn.Font = Enum.Font.Gotham; SafeTextScale(MinusBtn, 15)
+Instance.new("UICorner", MinusBtn).CornerRadius = UDim.new(0, 4)
+
+local PlusBtn = Instance.new("TextButton", SizeControlFrame)
+PlusBtn.Size = UDim2.new(0, 45, 1, 0); PlusBtn.Position = UDim2.new(1, -45, 0, 0)
+PlusBtn.Text = "+"; PlusBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+PlusBtn.BackgroundTransparency = 0.90; PlusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlusBtn.Font = Enum.Font.Gotham; SafeTextScale(PlusBtn, 15)
+Instance.new("UICorner", PlusBtn).CornerRadius = UDim.new(0, 4)
+
+local SizeLabel = Instance.new("TextLabel", SizeControlFrame)
+SizeLabel.Size = UDim2.new(1, -90, 1, 0); SizeLabel.Position = UDim2.new(0, 45, 0, 0)
+SizeLabel.BackgroundTransparency = 1; SizeLabel.Text = tostring(SizeIndex)
+SizeLabel.TextColor3 = Color3.fromRGB(255, 255, 255); SizeLabel.Font = Enum.Font.Gotham
+SafeTextScale(SizeLabel, 11)
+
+local function UpdateSizeUI()
+    SizeLabel.Text = tostring(SizeIndex)
+    if SizeIndex <= 0 then MinusBtn.BackgroundTransparency = 1; MinusBtn.TextTransparency = 0.7
+    else MinusBtn.BackgroundTransparency = 0.90; MinusBtn.TextTransparency = 0 end
+    if SizeIndex >= 20 then PlusBtn.BackgroundTransparency = 1; PlusBtn.TextTransparency = 0.7
+    else PlusBtn.BackgroundTransparency = 0.90; PlusBtn.TextTransparency = 0 end
+end
+UpdateSizeUI()
+
+MinusBtn.MouseButton1Click:Connect(function()
+    if SizeIndex > 0 then
+        ClickSound:Play(); SizeIndex = SizeIndex - 1; UpdateSizeUI()
+        TweenService:Create(MainUIScale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = GetDynamicScale()}):Play()
+        SaveConfig()
+    end
+end)
+PlusBtn.MouseButton1Click:Connect(function()
+    if SizeIndex < 20 then
+        ClickSound:Play(); SizeIndex = SizeIndex + 1; UpdateSizeUI()
+        TweenService:Create(MainUIScale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = GetDynamicScale()}):Play()
+        SaveConfig()
+    end
+end)
+
+-- Animations
+local AnimContent = MakeAccordion(SetP, "ANIMATIONS")
+NewBtn("Anim1", AnimContent, function() CurrentAnimStyle = "1v"; SaveConfig() end)
+NewBtn("Anim2", AnimContent, function() CurrentAnimStyle = "2v"; SaveConfig() end)
+NewBtn("Anim3", AnimContent, function() CurrentAnimStyle = "3v"; SaveConfig() end)
+
+-- Colors
+local ColorContent = MakeAccordion(SetP, "COLORS")
+NewBtn("ThemeBlue", ColorContent, function() CurrentThemeName = "ThemeBlue"; ApplyColorTheme(Color3.fromRGB(0, 100, 255)); SaveConfig() end)
+NewBtn("ThemeRed", ColorContent, function() CurrentThemeName = "ThemeRed"; ApplyColorTheme(Color3.fromRGB(255, 0, 0)); SaveConfig() end)
+NewBtn("ThemeDarkRed", ColorContent, function() CurrentThemeName = "ThemeDarkRed"; ApplyColorTheme(Color3.fromRGB(130, 0, 0)); SaveConfig() end)
+
+-- Performance
+local EffectConnection = nil
+local function ApplyNoEffects(enabled)
+    _G_settings.NoEffects = enabled
+    if enabled then
+        Lighting.GlobalShadows = false
+        for _, v in pairs(Lighting:GetChildren()) do if v:IsA("PostEffect") then v.Enabled = false end end
+        local function cleanEffects(v)
+            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then v:Destroy()
+            elseif v:IsA("BasePart") then if v.Parent and not v.Parent:FindFirstChild("Humanoid") then v.Material = Enum.Material.SmoothPlastic end
+            elseif (v:IsA("Texture") or v:IsA("Decal")) and v.Name ~= "face" then v:Destroy() end
+        end
+        for _, v in pairs(workspace:GetDescendants()) do cleanEffects(v) end
+        EffectConnection = workspace.DescendantAdded:Connect(function(v) if _G_settings.NoEffects then task.wait(); cleanEffects(v) end end)
+    else
+        if EffectConnection then EffectConnection:Disconnect() end
+    end
+end
+
+local PerformanceContent = MakeAccordion(SetP, "PERFORMANCE")
+NewBtn("FPS", PerformanceContent, function()
+    _G_settings.FPSUnlocked = not _G_settings.FPSUnlocked
+    if _G_settings.FPSUnlocked then
+        if setfpscap then setfpscap(999) end
+        ShowModeMsg("FPS Unlocked")
+    else
+        if setfpscap then setfpscap(60) end
+        ShowModeMsg("FPS Locked to 60")
+    end
+    Refresh(); SaveConfig()
+end)
+
+NewBtn("ShowFPS", PerformanceContent, function()
+    _G_settings.ShowFPSCounter = not _G_settings.ShowFPSCounter
+    FPSDisplay.Visible = _G_settings.ShowFPSCounter
+    Refresh(); SaveConfig()
+end)
+
+NewBtn("NoFx", PerformanceContent, function()
+    ApplyNoEffects(not _G_settings.NoEffects)
+    if _G_settings.NoEffects then ShowModeMsg("Performance Mode ON") else ShowModeMsg("Performance Mode OFF") end
+    Refresh(); SaveConfig()
+end)
+
+-- FPS Counter
+local LastFPSUpdate = tick()
+local FrameCount = 0
+RunService.RenderStepped:Connect(function()
+    FrameCount = FrameCount + 1
+    if tick() - LastFPSUpdate >= 0.5 then
+        if _G_settings.ShowFPSCounter then FPSDisplay.Text = "FPS: " .. math.floor(FrameCount / (tick() - LastFPSUpdate)) end
+        FrameCount = 0; LastFPSUpdate = tick()
+    end
+end)
+
+-- ==========================================
+-- [[ Tab System ]]
+-- ==========================================
+local TabData = {
+    Farm = {Page = FarmP, CG = FarmCG},
+    Player = {Page = PlayerP, CG = PlayerCG},
+    Esp = {Page = EspP, CG = EspCG},
+    Srvr = {Page = SrvrP, CG = SrvrCG},
+    Set = {Page = SetP, CG = SetCG},
+    Cred = {Page = CredP, CG = CredCG}
+}
+
+local currentActiveTab = nil
+
+local function SwitchTab(activeKey)
+    if currentActiveTab == activeKey then return end
+    currentActiveTab = activeKey
+    OpenSound:Play()
+    for key, data in pairs(TabData) do
+        local tabBtn = UI_Elements[key]
+        if key == activeKey then
+            data.CG.Visible = true
+            TweenService:Create(data.CG, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+            if tabBtn then
+                local uiScale = tabBtn:FindFirstChildOfClass("UIScale")
+                tabBtn:SetAttribute("IsActive", true)
+                if uiScale then TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Scale = 1.10}):Play() end
+                TweenService:Create(tabBtn, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {BackgroundTransparency = 1}):Play()
+            end
+        else
+            if data.CG.Visible then
+                local fadeTween = TweenService:Create(data.CG, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {GroupTransparency = 1})
+                fadeTween:Play()
+                task.spawn(function()
+                    fadeTween.Completed:Wait()
+                    if currentActiveTab ~= key then data.CG.Visible = false end
+                end)
+            end
+            if tabBtn then
+                local uiScale = tabBtn:FindFirstChildOfClass("UIScale")
+                tabBtn:SetAttribute("IsActive", false)
+                if uiScale then TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Scale = 1.0}):Play() end
+                TweenService:Create(tabBtn, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {BackgroundTransparency = 0.90}):Play()
+            end
+        end
+    end
+end
+
+for key, _ in pairs(TabData) do
+    UI_Elements[key].MouseButton1Click:Connect(function() SwitchTab(key) end)
+end
+
+-- ==========================================
+-- [[ Apply Theme & Start ]]
+-- ==========================================
+if CurrentThemeName == "ThemeBlue" then ApplyColorTheme(Color3.fromRGB(0, 100, 255))
+elseif CurrentThemeName == "ThemeRed" then ApplyColorTheme(Color3.fromRGB(255, 0, 0))
+elseif CurrentThemeName == "ThemeDarkRed" then ApplyColorTheme(Color3.fromRGB(130, 0, 0))
+end
+
+if _G_settings.FPSUnlocked and setfpscap then setfpscap(999) end
+ApplyNoEffects(_G_settings.NoEffects)
+
+CustomBtn.Visible = true
+SwitchTab("Farm")
+Refresh()
