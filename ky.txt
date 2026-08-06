@@ -1,0 +1,3781 @@
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local LocalizationService = game:GetService("LocalizationService")
+local ContentProvider = game:GetService("ContentProvider")
+local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+
+
+-- ====================================================================
+-- [إصلاح]: جدول لتتبّع آخر توين فعّال على كل عنصر، لإلغاء أي توين سابق
+-- قبل تشغيل توين جديد على نفس الخاصية، فلا تتعارك التوينات المستقلة
+-- (مثل توين الضغط/الهوفر مع توين الفتح/الإغلاق) وتسبب قفزة بدل تلاشي سلس
+-- ====================================================================
+local _ActiveTweensByInstance = setmetatable({}, {__mode = "k"})
+
+local function SafeTween(instance, tweenInfo, properties)
+    local existing = _ActiveTweensByInstance[instance]
+    if existing then
+        for propName, t in pairs(existing) do
+            if properties[propName] ~= nil and t then
+                t:Cancel()
+                existing[propName] = nil
+            end
+        end
+    else
+        existing = {}
+        _ActiveTweensByInstance[instance] = existing
+    end
+
+    local tween = TweenService:Create(instance, tweenInfo, properties)
+    for propName in pairs(properties) do
+        existing[propName] = tween
+    end
+    tween:Play()
+    return tween
+end
+
+-- ====================================================================
+
+-- ====================================================================
+local IntroGui = Instance.new("ScreenGui")
+IntroGui.Name = "IntroBlackScreen"
+IntroGui.Parent = CoreGui
+IntroGui.DisplayOrder = 2147483647
+IntroGui.IgnoreGuiInset = true
+
+local IntroFrame = Instance.new("Frame")
+IntroFrame.Size = UDim2.new(1, 0, 1, 0)
+IntroFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+IntroFrame.BackgroundTransparency = 1
+IntroFrame.ZIndex = 999999999
+IntroFrame.Parent = IntroGui
+
+
+
+
+local IntroMusic = Instance.new("Sound")
+IntroMusic.Name = "IntroMusic"
+IntroMusic.SoundId = "rbxassetid://111826015270175"
+IntroMusic.Volume = 0
+IntroMusic.Looped = true
+IntroMusic.PlaybackSpeed = 0.83 -- x1.2 أبطأ
+IntroMusic.Parent = CoreGui
+
+
+local _IntroReadyToLoad = false
+
+-- ====================================================================
+-- [تحسين]: قائمة مركزية لأي محتوى (صور الألعاب وغيرها) يجب تحميله
+-- قبل اختفاء شاشة التحميل السوداء. أي كود لاحق (مثل CreateGameCard)
+-- يسجّل عناصره هنا عبر RegisterPreloadAsset، فيتم تحميلها تلقائياً
+-- ضمن مهلة الـ Intro من غير ما نعدّل منطق الـ Intro نفسه. بهذا أي
+-- لعبة تُضاف مستقبلاً تنضم تلقائياً لقائمة التحميل بمجرد إنشاء كرتها.
+-- ====================================================================
+local _PendingPreloadAssets = {}
+local _ScriptFullyLoaded = false
+
+local function RegisterPreloadAsset(assetInstanceOrId)
+    table.insert(_PendingPreloadAssets, assetInstanceOrId)
+end
+
+-- إعلان مسبق (forward declaration): تُسنَد القيمة الفعلية لاحقاً بعد
+-- تعريف SelectGame وإنشاء كروت الألعاب. الـ Intro (أعلاه/أدناه) يستدعيها
+-- عبر متغيّر upvalue مشترك، فيعمل التحديد التلقائي حتى لو لم يكن معرّفاً
+-- بعد وقت تشغيل هذا الجزء من الكود.
+local _DefaultGameSelector = nil
+
+task.spawn(function()
+
+    local fadeIn = TweenService:Create(
+        IntroFrame,
+        TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+        {BackgroundTransparency = 0}
+    )
+    fadeIn:Play()
+    fadeIn.Completed:Wait()
+
+
+    -- ننتظر حتى ينتهي تحميل وتنفيذ السكريبت بالكامل (بما في ذلك كل
+    -- استدعاءات CreateGameCard التي تسجّل صورها عبر RegisterPreloadAsset)
+    -- قبل أن نجمع قائمة العناصر المطلوب تحميلها. العلم _ScriptFullyLoaded
+    -- يُفعَّل في آخر سطر بالسكريبت، فهذا انتظار مضمون وليس تخميناً بعدد الفريمات.
+    while not _ScriptFullyLoaded do
+        task.wait()
+    end
+
+    -- تحميل كل العناصر المسجَّلة (صور كروت الألعاب وغيرها) بالتوازي
+    -- مع مهلة الانتظار الأصلية (2.2 ثانية)، فلا تزيد مدة شاشة التحميل،
+    -- لكنها لا تختفي قبل أن تكون الصور جاهزة فعلياً.
+    local minWait = 2.2
+    local waitStart = os.clock()
+
+    pcall(function()
+        if #_PendingPreloadAssets > 0 then
+            ContentProvider:PreloadAsync(_PendingPreloadAssets)
+        end
+    end)
+
+    local elapsed = os.clock() - waitStart
+    if elapsed < minWait then
+        task.wait(minWait - elapsed)
+    end
+
+
+
+    _IntroReadyToLoad = true
+end)
+
+-- ====================================================================
+
+-- ====================================================================
+local MuteManager = {
+    OriginalVolumes = {},
+    ActiveTweens = {},
+    IsMuting = false,
+    FadeDuration = 1,
+    Connection = nil,
+}
+
+local function IsUiSound(sound)
+    if not sound or not sound.Parent then return true end
+    if sound:IsDescendantOf(CoreGui) then return true end
+  
+    if sound.Name == "IntroMusic" or sound.Name == "activeClickSound" or sound.Name == "activePageSound" then
+      return true
+    end
+    return false
+end
+
+local function StoreOriginalVolume(sound)
+    if not MuteManager.OriginalVolumes[sound] then
+        MuteManager.OriginalVolumes[sound] = sound.Volume
+    end
+end
+
+local function TweenSoundVolume(sound, targetVolume, duration, callback)
+    if not sound or not sound.Parent then 
+        if callback then callback() end
+        return 
+    end
+    
+    if MuteManager.ActiveTweens[sound] then
+        MuteManager.ActiveTweens[sound]:Cancel()
+        MuteManager.ActiveTweens[sound] = nil
+    end
+    
+    local tween = TweenService:Create(sound, TweenInfo.new(duration, Enum.EasingStyle.Linear), {Volume = targetVolume})
+    MuteManager.ActiveTweens[sound] = tween
+    tween:Play()
+    if callback then
+        tween.Completed:Connect(callback)
+    end
+end
+
+local function ProcessAllSounds(targetVolume, duration)
+    for sound, origVol in pairs(MuteManager.OriginalVolumes) do
+        if sound and sound.Parent and not IsUiSound(sound) then
+            local vol = (targetVolume == 0) and 0 or origVol
+            TweenSoundVolume(sound, vol, duration)
+        else
+            MuteManager.OriginalVolumes[sound] = nil
+        end
+    end
+end
+
+local function OnDescendantAdded(obj)
+    pcall(function()
+        if (obj:IsA("Sound") or obj:IsA("SoundGroup")) and not IsUiSound(obj) then
+            StoreOriginalVolume(obj)
+            if MuteManager.IsMuting then
+                obj.Volume = 0
+            end
+        end
+    end)
+end
+
+function MuteManager:Init()
+    for _, obj in pairs(game:GetDescendants()) do
+        if (obj:IsA("Sound") or obj:IsA("SoundGroup")) and not IsUiSound(obj) then
+            StoreOriginalVolume(obj)
+            if self.IsMuting then
+                obj.Volume = 0
+            end
+        end
+    end
+    
+    if self.Connection then self.Connection:Disconnect() end
+    self.Connection = game.DescendantAdded:Connect(OnDescendantAdded)
+end
+
+function MuteManager:FadeOutSounds(duration)
+    self.FadeDuration = duration or 1
+    self.IsMuting = true
+    
+    if not self.Connection then
+        self:Init()
+    end
+    
+    ProcessAllSounds(0, self.FadeDuration)
+end
+
+function MuteManager:FadeInSounds(duration)
+    self.FadeDuration = duration or 1
+    self.IsMuting = false
+    
+    for sound, origVol in pairs(self.OriginalVolumes) do
+        if sound and sound.Parent and not IsUiSound(sound) then
+            TweenSoundVolume(sound, origVol, self.FadeDuration)
+        else
+            self.OriginalVolumes[sound] = nil
+        end
+    end
+end
+
+function MuteManager:Cleanup()
+    if self.Connection then
+        self.Connection:Disconnect()
+        self.Connection = nil
+    end
+    for sound, tween in pairs(self.ActiveTweens) do
+        if tween then tween:Cancel() end
+    end
+    self.ActiveTweens = {}
+    self.OriginalVolumes = {}
+    self.IsMuting = false
+end
+
+-- ====================================================================
+
+-- ====================================================================
+
+local RequireKeyForEU = true
+
+if CoreGui:FindFirstChild("Acrocan0UnifiedRed") then
+    CoreGui:FindFirstChild("Acrocan0UnifiedRed"):Destroy()
+end
+
+local FolderName = "Acrocan0HubData"
+local FileName = FolderName .. "/KeySave.txt"
+local ExpirationHours = 11
+local ExpirationSeconds = ExpirationHours * 60 * 60
+
+-- ====================================================================
+
+-- ====================================================================
+local SettingsFileName = FolderName .. "/SettingsSave.txt"
+local _InitSizeIndex  = 15
+local _InitAnimStyle  = "2v"
+local _InitColorName  = "Pink"
+local _InitLang       = "English"
+
+do
+    local ok = pcall(function()
+        if isfile and isfile(SettingsFileName) then
+            local data = readfile(SettingsFileName)
+            if data then
+                local parts = {}
+                for part in data:gmatch("[^|]+") do table.insert(parts, part) end
+                local idx = tonumber(parts[1])
+                if idx and idx >= 7 and idx <= 20 then _InitSizeIndex = idx end
+                if parts[2] == "1v" or parts[2] == "2v" or parts[2] == "3v" then
+                    _InitAnimStyle = parts[2]
+                end
+                if parts[3] == "NormalRed" or parts[3] == "DarkRed" or parts[3] == "Blue" or parts[3] == "LightBlue"
+                    or parts[3] == "Pink" or parts[3] == "DarkPink" or parts[3] == "LightPink" then
+                    _InitColorName = parts[3]
+                end
+                local validLangs = {English=true}
+                if parts[4] and validLangs[parts[4]] then
+                    _InitLang = parts[4]
+                end
+            end
+        end
+    end)
+end
+
+local SaveSettings
+
+if not isfolder(FolderName) then
+    makefolder(FolderName)
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+local BackgroundOverlay = Instance.new("Frame") 
+local MainFrame = Instance.new("Frame")
+local ContentFrame = Instance.new("Frame") 
+local Title = Instance.new("TextLabel")
+local KeyDescLabel = Instance.new("TextLabel")
+local KeyInput = Instance.new("TextBox")
+local SubmitBtn = Instance.new("TextButton")
+local GetLinkBtn = Instance.new("TextButton")
+local GameSelectionFrame = Instance.new("Frame")
+local GameScrollFrame = Instance.new("ScrollingFrame")
+local SettingsFrame = Instance.new("Frame") 
+local TimerLabel = Instance.new("TextLabel") 
+
+local TargetGlowColor = Color3.fromRGB(255, 105, 180)
+local CurrentGlowColor = Color3.fromRGB(255, 105, 180)
+local CurrentMainBgColor = Color3.fromRGB(35, 6, 20)
+local CurrentBoxBgColor = Color3.fromRGB(20, 4, 12)
+
+-- ====================================================================
+
+-- ====================================================================
+local MainUIScale = Instance.new("UIScale")
+MainUIScale.Parent = ContentFrame
+
+local GlowUIScale = Instance.new("UIScale")
+
+local SizeIndex = _InitSizeIndex
+local ScaleValues = {0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5}
+local MaxSizeIndex = #ScaleValues -- = 20
+local Camera = workspace.CurrentCamera
+
+
+local function GetDynamicScale()
+    local viewport = Camera.ViewportSize
+    local ratio = 1
+    if viewport.X > 0 and viewport.Y > 0 then
+        ratio = math.min(viewport.X / 1280, viewport.Y / 720)
+    end
+    return ratio * ScaleValues[SizeIndex]
+end
+
+
+local function GetBackgroundScale()
+    local viewport = Camera.ViewportSize
+    local ratio = 1
+    if viewport.X > 0 and viewport.Y > 0 then
+        ratio = math.min(viewport.X / 1280, viewport.Y / 720)
+    end
+    return ratio
+end
+
+local CurrentUIScale = GetDynamicScale()
+MainUIScale.Scale = CurrentUIScale
+GlowUIScale.Scale = GetBackgroundScale()
+
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    MainUIScale.Scale = GetDynamicScale()
+    if GlowUIScale then GlowUIScale.Scale = GetBackgroundScale() end
+end)
+
+
+local CurrentAnimStyle = _InitAnimStyle
+local GlowAlpha = 0 
+local IsLoggedIn = false 
+local CurrentPage = "Key" 
+local CurrentSettingTab = 1
+
+-- ====================================================================
+
+-- ====================================================================
+
+local activeClickSound = nil
+local activePageSound = nil
+
+local function PlayClickSound()
+    if activeClickSound and activeClickSound.Parent then
+        local oldSound = activeClickSound
+        local fadeOutTween = TweenService:Create(oldSound, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {Volume = 0})
+        fadeOutTween:Play()
+        Debris:AddItem(oldSound, 0.35)
+    end
+
+    local sound = Instance.new("Sound")
+    sound.Name = "activeClickSound"
+    sound.SoundId = "rbxassetid://6176545137"
+    sound.Volume = 1
+    sound.Parent = CoreGui
+    sound:Play()
+ 
+    activeClickSound = sound
+    
+    local normalFadeTween = TweenService:Create(sound, TweenInfo.new(2, Enum.EasingStyle.Linear), {Volume = 0})
+    normalFadeTween:Play()
+    Debris:AddItem(sound, 2.5)
+end
+
+local function PlayPageChangeSound()
+    if activePageSound and activePageSound.Parent then
+        local oldPageSound = activePageSound
+        local fadeOutTween = TweenService:Create(oldPageSound, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {Volume = 0})
+        fadeOutTween:Play()
+        Debris:AddItem(oldPageSound, 0.35)
+    end
+
+    local sound = Instance.new("Sound")
+    sound.Name = "activePageSound"
+    sound.SoundId = "rbxassetid://102250334662256"
+    sound.Volume = 0.4
+    sound.Parent = CoreGui
+    sound:Play()
+  
+    activePageSound = sound
+    
+    Debris:AddItem(sound, 5)
+end
+
+-- ====================================================================
+
+-- ====================================================================
+local Translations = {
+    English = {
+        KeySystem = "KEY SYSTEM", KeySystemDesc = "We use Linkvertise, the easiest and fastest site to get a key.\nThe process takes less than 30 seconds.",
+        EnterKey = "ENTER KEY", GetKey = "GET KEY", Login = "LOGIN",
+        Games = "GAMES", Settings = "SETTINGS", Exit = "EXIT", SelectGame = "SELECT GAME",
+        Warning = "WARNING: Don't execute scripts in unsupported games to avoid bans!",
+        ChooseLang = "CHOOSE LANGUAGE", ApplyLang = "APPLY LANGUAGE", ResetLang = "RESET TO ENGLISH",
+        WrongKey = "WRONG KEY", AlreadyLogged = "ALREADY LOGGED IN", LinkCopied = "LINK COPIED!",
+        RequireKeyFirst = "Please complete the key system first",
+        LanguageSet = "Language", UIThemeSet = "UI Theme", LatestUpdates = "Latest Updates",
+        DevCreditsSet = "Developer Credits", KeyExpired = "KEY EXPIRED!", CouldNotCopy = "COULD NOT COPY",
+        UIColors = "COLORS", UIRedAnim = "ANIMATION", UISize = "UI SIZE", Back = "<",
+        ChangeSize = "CHANGE SIZE", ChangeAnim = "CHANGE ANIMATION", ChooseColor = "CHOOSE COLOR",
+        Anim1 = "v1\n(Fast Beam)", Anim2 = "v2\n(Vortex)", Anim3 = "v3\n(The Sun)",
+        UpdateDate = "The developer is on vacation", UpdateCW = "Raycast/no Raycast", UpdateKA = "Infinite Run ", UpdateKU = " RADIATION SECTION With improvements to the interface", UpdateDS = "Automatic server switching if the diamond and meteor quantity drops with automatic pressing of the play button", UpdateKM = "The script has been launched!",
+        Credit1 = "Script developed by sna", Credit2 = "Syrian National Army, aim to learn all programming languages", Credit3 = "Contact:", Credit4 = "TikTok: acrocan0", Credit5 = "YouTube: acrocan0"
+    },
+}
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = CurrentMainBgColor 
+MainFrame.BackgroundTransparency = 1 
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5) 
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0) 
+MainFrame.Size = UDim2.new(1, 0, 1, 0) 
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.ZIndex = 2
+
+ContentFrame.Name = "ContentFrame"
+ContentFrame.Parent = MainFrame
+ContentFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+ContentFrame.Position = UDim2.new(2, 0, 0.5, 0) -- خارج الشاشة على اليمين أثناء الـ Loading
+ContentFrame.Size = UDim2.new(0, 420, 0, 290)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.ZIndex = 10 
+
+local RequiredKey = "2334"
+local KeyLink = "https://link-center.net/4922990/7RAT9cGHvrlU"
+
+local Scripts = {
+    ["Kaiju Universe"] = "https://pastebin.com/raw/YYN2TxcU",
+    ["Kaiju Alpha"] = "https://pastebin.com/raw/pVqW28Bg",
+    ["Combat Warriors"] = "https://pastebin.com/raw/KDGfSBiU",
+    ["Dinosaur Simulator"] = "https://pastebin.com/raw/aJXys9HB",
+    ["Kaiju Multiverse"] = "https://pastebin.com/raw/ygXAZ70D",
+}
+
+
+ScreenGui.Name = "Acrocan0UnifiedRed"
+ScreenGui.Parent = CoreGui
+ScreenGui.IgnoreGuiInset = true
+
+pcall(function()
+    ScreenGui.ScreenInsets = Enum.ScreenInsets.None
+end)
+
+ScreenGui.DisplayOrder = 2147483646 
+
+BackgroundOverlay.Name = "DimBackground"
+BackgroundOverlay.Parent = ScreenGui
+BackgroundOverlay.Size = UDim2.new(1, 0, 1, 0)
+BackgroundOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+BackgroundOverlay.BackgroundTransparency = 1 
+BackgroundOverlay.ZIndex = 1 
+
+local GlowContainer = Instance.new("Frame")
+GlowContainer.Name = "GlowContainer"
+GlowContainer.Parent = MainFrame
+GlowContainer.BackgroundTransparency = 1
+GlowContainer.Size = UDim2.new(1, 0, 1, 0) 
+GlowContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+GlowContainer.Position = UDim2.new(0.5, 0, 0.5, 0) 
+GlowContainer.ZIndex = 3
+
+GlowUIScale.Parent = GlowContainer
+
+
+local TotalLayers = 300
+local LayersData = {}
+for i = 1, TotalLayers do
+    local Layer = Instance.new("Frame")
+    Layer.Parent = GlowContainer
+    Layer.AnchorPoint = Vector2.new(0.5, 0.5)
+    Layer.BorderSizePixel = 0
+    Layer.ZIndex = 4 
+    
+
+    local baseSize = 130 + (i * 6) 
+    Layer.Size = UDim2.new(0, baseSize, 0, baseSize)
+    
+    local progress = (TotalLayers - i) / TotalLayers
+    Layer.BackgroundTransparency = 1 
+ 
+    Instance.new("UICorner", Layer).CornerRadius = UDim.new(1, 0)
+    
+    table.insert(LayersData, {
+        Instance = Layer,
+        BaseSize = baseSize,
+        OffsetFactor = (i / TotalLayers),
+        Progress = progress
+    })
+end
+
+task.spawn(function()
+    local timeCounter = 0
+    while true do
+        timeCounter = timeCounter + 0.007 
+        CurrentGlowColor = CurrentGlowColor:Lerp(TargetGlowColor, 0.03)
+        
+        for _, data in pairs(LayersData) do
+            if data.Instance and data.Instance.Parent then
+                local offsetX, offsetY, sizePulse
+               
+                if CurrentAnimStyle == "1v" then
+                    local waveAngle = timeCounter * 0.6 + (data.OffsetFactor * math.pi * 1.5)
+                    offsetX = math.sin(waveAngle) * 480 
+                    offsetY = math.cos(waveAngle * 0.5) * 160 
+                    sizePulse = 1 + (math.sin(waveAngle * 0.8) * 0.12)
+                elseif CurrentAnimStyle == "2v" then 
+                    local waveAngle = timeCounter * 1.2 + (data.OffsetFactor * math.pi * 2.5)
+                    offsetX = math.sin(waveAngle) * 200
+                    offsetY = math.cos(waveAngle * 0.8) * 200
+                    sizePulse = 1 + (math.sin(timeCounter * 1.5 + data.OffsetFactor) * 0.25)
+                elseif CurrentAnimStyle == "3v" then
+                    local speed = 0.15 + (data.OffsetFactor * 0.35)
+                    local seed = data.OffsetFactor * 100
+                    local layerAngle = timeCounter * (speed * 1) + seed
+                    
+                    offsetX = (math.sin(layerAngle) * 60) - 200 
+                    offsetY = math.cos(layerAngle * 0.8) * 60
+                    sizePulse = 1 + (math.sin(layerAngle * 1.2) * 0.25)
+                end
+                
+
+                local distanceFactor = 4
+                data.Instance.Position = UDim2.new(0.5, offsetX * distanceFactor, 0.5, offsetY * distanceFactor)
+                
+
+                local currentSize = data.BaseSize * sizePulse
+                data.Instance.Size = UDim2.new(0, currentSize, 0, currentSize)
+                
+                local baseTrans = 0.983 + (data.Progress * 0.008) 
+                local finalTrans = 1 - ((1 - baseTrans) * GlowAlpha)
+                
+
+
+                local sizeDelta = sizePulse - 1
+                local dynamicColor
+                if sizeDelta > 0 then
+                    dynamicColor = CurrentGlowColor:Lerp(Color3.new(1, 1, 1), sizeDelta * 0.8)
+                else
+                    dynamicColor = CurrentGlowColor:Lerp(Color3.new(0, 0, 0), -sizeDelta * 0.8)
+                end
+                
+                data.Instance.BackgroundTransparency = finalTrans
+                data.Instance.BackgroundColor3 = dynamicColor
+            end
+        end
+        task.wait()
+    end
+end)
+
+Title.Parent = ContentFrame
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 0, 45)
+Title.Font = Enum.Font.Gotham
+Title.Text = Translations.English.KeySystem
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 12 
+Title.TextTransparency = 1
+Title.ZIndex = 11
+
+KeyDescLabel.Parent = ContentFrame
+KeyDescLabel.BackgroundTransparency = 1
+KeyDescLabel.Position = UDim2.new(0.1, 0, 0.16, 0)
+KeyDescLabel.Size = UDim2.new(0.8, 0, 0, 30)
+KeyDescLabel.Font = Enum.Font.Gotham
+KeyDescLabel.Text = Translations.English.KeySystemDesc
+KeyDescLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+KeyDescLabel.TextSize = 9
+KeyDescLabel.TextWrapped = true
+KeyDescLabel.TextTransparency = 1
+KeyDescLabel.ZIndex = 11
+KeyDescLabel.Visible = false
+
+TimerLabel.Parent = ContentFrame
+TimerLabel.BackgroundTransparency = 1
+TimerLabel.Position = UDim2.new(1, -100, 0, 10) 
+TimerLabel.Size = UDim2.new(0, 90, 0, 20)
+TimerLabel.Font = Enum.Font.Gotham
+TimerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TimerLabel.TextSize = 10
+TimerLabel.TextXAlignment = Enum.TextXAlignment.Right
+TimerLabel.TextTransparency = 1
+TimerLabel.ZIndex = 11
+TimerLabel.Visible = false
+
+KeyInput.Parent = ContentFrame
+KeyInput.BackgroundColor3 = CurrentBoxBgColor
+KeyInput.BackgroundTransparency = 1 
+KeyInput.Position = UDim2.new(0.15, 0, 0.38, 0) 
+KeyInput.Size = UDim2.new(0.7, 0, 0, 35)
+KeyInput.Font = Enum.Font.Gotham
+KeyInput.PlaceholderText = Translations.English.EnterKey
+KeyInput.PlaceholderColor3 = Color3.fromRGB(140, 140, 140)
+KeyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyInput.TextSize = 11
+KeyInput.TextTransparency = 1
+KeyInput.ZIndex = 11
+KeyInput.BorderSizePixel = 0 
+
+Instance.new("UICorner", KeyInput).CornerRadius = UDim.new(0, 4)
+
+GetLinkBtn.Parent = ContentFrame
+GetLinkBtn.BackgroundColor3 = CurrentBoxBgColor 
+GetLinkBtn.BackgroundTransparency = 1 
+GetLinkBtn.Position = UDim2.new(0.15, 0, 0.54, 0) 
+GetLinkBtn.Size = UDim2.new(0.33, 0, 0, 38)
+GetLinkBtn.Font = Enum.Font.Gotham
+GetLinkBtn.Text = Translations.English.GetKey
+GetLinkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+GetLinkBtn.TextSize = 11
+GetLinkBtn.TextTransparency = 1
+GetLinkBtn.ZIndex = 11
+GetLinkBtn.BorderSizePixel = 0 
+Instance.new("UICorner", GetLinkBtn).CornerRadius = UDim.new(0, 4)
+
+SubmitBtn.Parent = ContentFrame
+SubmitBtn.BackgroundColor3 = CurrentBoxBgColor 
+SubmitBtn.BackgroundTransparency = 1 
+SubmitBtn.Position = UDim2.new(0.52, 0, 0.54, 0) 
+SubmitBtn.Size = UDim2.new(0.33, 0, 0, 38)
+SubmitBtn.Font = Enum.Font.Gotham 
+SubmitBtn.Text = Translations.English.Login
+SubmitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SubmitBtn.TextSize = 11
+SubmitBtn.TextTransparency = 1
+SubmitBtn.ZIndex = 11
+SubmitBtn.BorderSizePixel = 0 
+Instance.new("UICorner", SubmitBtn).CornerRadius = UDim.new(0, 4)
+
+GameSelectionFrame.Parent = ContentFrame
+GameSelectionFrame.Size = UDim2.new(1, 0, 1, 0)
+GameSelectionFrame.BackgroundTransparency = 1
+GameSelectionFrame.Visible = false
+GameSelectionFrame.ZIndex = 11
+
+local GamesContentBox = Instance.new("Frame")
+GamesContentBox.Name = "GamesContentBox"
+GamesContentBox.Parent = GameSelectionFrame
+GamesContentBox.Size = UDim2.new(0.57, 0, 0, 200)
+GamesContentBox.Position = UDim2.new(0.03, 0, 0, 35)
+GamesContentBox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+GamesContentBox.BackgroundTransparency = 1
+GamesContentBox.ZIndex = 11
+Instance.new("UICorner", GamesContentBox).CornerRadius = UDim.new(0, 8)
+
+GameScrollFrame.Name = "GameScrollFrame"
+GameScrollFrame.Parent = GamesContentBox
+GameScrollFrame.Position = UDim2.new(0.02, 0, 0.03, 0)
+GameScrollFrame.Size = UDim2.new(0.96, 0, 0.94, 0)
+GameScrollFrame.BackgroundTransparency = 1
+GameScrollFrame.BorderSizePixel = 0
+GameScrollFrame.ScrollBarThickness = 4
+GameScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 105, 180)
+GameScrollFrame.ScrollBarImageTransparency = 0.95
+GameScrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+GameScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 200)
+GameScrollFrame.ZIndex = 12
+
+local GameScrollLayout = Instance.new("UIGridLayout")
+GameScrollLayout.Parent = GameScrollFrame
+GameScrollLayout.CellSize = UDim2.new(0, 65, 0, 49)
+GameScrollLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+GameScrollLayout.FillDirection = Enum.FillDirection.Horizontal
+GameScrollLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+GameScrollLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+GameScrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local GameScrollPadding = Instance.new("UIPadding")
+GameScrollPadding.Parent = GameScrollFrame
+GameScrollPadding.PaddingTop = UDim.new(0, 6)
+GameScrollPadding.PaddingLeft = UDim.new(0, 8)
+GameScrollPadding.PaddingRight = UDim.new(0, 2)
+
+-- =====================================================
+-- المربع اليميني: تفاصيل اللعبة المختارة
+-- =====================================================
+local GameDetailPanel = Instance.new("Frame")
+GameDetailPanel.Name = "GameDetailPanel"
+GameDetailPanel.Parent = GameSelectionFrame
+GameDetailPanel.Size = UDim2.new(0.36, 0, 0, 200)
+GameDetailPanel.Position = UDim2.new(0.62, 0, 0, 35)
+GameDetailPanel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+GameDetailPanel.BackgroundTransparency = 1 
+GameDetailPanel.ZIndex = 11
+GameDetailPanel.ClipsDescendants = true
+Instance.new("UICorner", GameDetailPanel).CornerRadius = UDim.new(0, 8)
+
+local DetailImage = Instance.new("ImageLabel")
+DetailImage.Name = "DetailImage"
+DetailImage.Parent = GameDetailPanel
+DetailImage.Size = UDim2.new(1, -10, 0, 80)
+DetailImage.Position = UDim2.new(0, 5, 0, 8)
+DetailImage.BackgroundTransparency = 1
+DetailImage.Image = ""
+DetailImage.ImageTransparency = 1
+DetailImage.ScaleType = Enum.ScaleType.Stretch
+DetailImage.ZIndex = 12
+
+local DetailImageCorner = Instance.new("UICorner")
+DetailImageCorner.CornerRadius = UDim.new(0, 6)
+DetailImageCorner.Parent = DetailImage
+
+local DetailNameLabel = Instance.new("TextLabel")
+DetailNameLabel.Name = "DetailNameLabel"
+DetailNameLabel.Parent = GameDetailPanel
+DetailNameLabel.Size = UDim2.new(1, -10, 0, 20)
+DetailNameLabel.Position = UDim2.new(0, 5, 0, 94)
+DetailNameLabel.BackgroundTransparency = 1
+DetailNameLabel.Font = Enum.Font.Gotham
+DetailNameLabel.Text = ""
+DetailNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+DetailNameLabel.TextSize = 10
+DetailNameLabel.TextTransparency = 1
+DetailNameLabel.TextXAlignment = Enum.TextXAlignment.Center
+DetailNameLabel.ZIndex = 12
+
+local LaunchBtn = Instance.new("TextButton")
+LaunchBtn.Name = "LaunchBtn"
+LaunchBtn.Parent = GameDetailPanel
+LaunchBtn.Size = UDim2.new(0.82, 0, 0, 28)
+LaunchBtn.Position = UDim2.new(0.09, 0, 0, 122)
+LaunchBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+LaunchBtn.BackgroundTransparency = 1
+LaunchBtn.Font = Enum.Font.Gotham
+LaunchBtn.Text = "▶  LAUNCH"
+LaunchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+LaunchBtn.TextSize = 10
+LaunchBtn.TextTransparency = 1
+LaunchBtn.ZIndex = 13
+LaunchBtn.BorderSizePixel = 0
+LaunchBtn.AutoButtonColor = false
+Instance.new("UICorner", LaunchBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UIScale", LaunchBtn)
+
+-- إضافة النص باللون الأخضر تحت زر LAUNCH
+local AntiBanLabel = Instance.new("TextLabel")
+AntiBanLabel.Name = "AntiBanLabel"
+AntiBanLabel.Parent = GameDetailPanel
+AntiBanLabel.Size = UDim2.new(0.82, 0, 0, 15)
+AntiBanLabel.Position = UDim2.new(0.09, 0, 0, 156) -- تحت الزر مباشرة
+AntiBanLabel.BackgroundTransparency = 1
+AntiBanLabel.Font = Enum.Font.Gotham
+AntiBanLabel.Text = "Anti-ban"
+AntiBanLabel.TextColor3 = Color3.fromRGB(0, 255, 0) -- أخضر
+AntiBanLabel.TextSize = 9
+AntiBanLabel.TextTransparency = 1
+AntiBanLabel.TextXAlignment = Enum.TextXAlignment.Center
+AntiBanLabel.ZIndex = 15
+
+local SelectedGameUrl = nil
+local SelectedGameName = nil
+local SelectedGameCard = nil
+local GameImagesList = {}
+local GameLabelsList = {}
+
+-- دالة تحديث المربع اليميني ومعالجة الشفافية والتباعد للصور الأخرى
+local function SelectGame(imgBtn, name, url, assetId, detailId)
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tiBack = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+    if SelectedGameCard == imgBtn then return end
+
+    SelectedGameCard = imgBtn
+    SelectedGameUrl = url
+    SelectedGameName = name
+
+    -- حساب موضع الصورة المضغوط عليها لدفع الصور الأخرى بعيداً عنها
+    local selectedPos = imgBtn.Parent.AbsolutePosition
+    for _, otherImg in ipairs(GameImagesList) do
+        local otherScale = otherImg:FindFirstChildOfClass("UIScale")
+        if otherImg ~= imgBtn then
+            if otherScale then
+                SafeTween(otherScale, ti, {Scale = 1.0})
+            end
+            local otherPos = otherImg.Parent.AbsolutePosition
+            local dir = (otherPos - selectedPos).Unit
+            if dir.Magnitude == 0 or dir.X ~= dir.X then
+                dir = Vector2.new(0, 1)
+            end
+            -- إزاحة خفيفة بمقدار 8 بكسل والشفافية تصبح 0.60
+            local targetPos = UDim2.new(0, dir.X * 8, 0, dir.Y * 8)
+            SafeTween(otherImg, ti, {
+                ImageTransparency = 0.60,
+                Position = targetPos
+            })
+        else
+            -- الصورة المحددة تصبح واضحة تماماً وتكبر لـ 1.13 وترجع لمركزها الطبيعي
+            if otherScale then
+                SafeTween(otherScale, tiBack, {Scale = 1.13})
+            end
+            SafeTween(otherImg, ti, {
+                ImageTransparency = 0,
+                Position = UDim2.new(0, 0, 0, 0)
+            })
+        end
+    end
+
+    local tiFast = TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tiIn   = TweenInfo.new(0.3,  Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    SafeTween(DetailImage, tiFast, {ImageTransparency = 1})
+    SafeTween(DetailNameLabel, tiFast, {TextTransparency  = 1})
+    SafeTween(AntiBanLabel, tiFast, {TextTransparency  = 1}) -- إخفاء مؤقتاً
+
+    LaunchBtn.BackgroundColor3 = TargetGlowColor
+    SafeTween(LaunchBtn, tiIn, {BackgroundTransparency = 0.9, TextTransparency = 0})
+
+    task.delay(0.15, function()
+        DetailImage.Image    = "rbxthumb://type=Asset&id=" .. detailId .. "&w=420&h=420"
+        DetailNameLabel.Text = name
+
+        if name == "Combat Warriors" then
+            AntiBanLabel.Text       = "Under Development"
+            AntiBanLabel.TextColor3 = Color3.fromRGB(255, 220, 0)
+        else
+            AntiBanLabel.Text       = "Anti-ban"
+            AntiBanLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+        end
+
+        local tiIn2 = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        SafeTween(DetailImage, tiIn2, {ImageTransparency = 0})
+        SafeTween(DetailNameLabel, tiIn2, {TextTransparency  = 0})
+        SafeTween(AntiBanLabel, tiIn2, {TextTransparency  = 0})
+    end)
+end
+-- =====================================================
+
+SettingsFrame.Parent = ContentFrame
+SettingsFrame.Size = UDim2.new(1, 0, 1, 0)
+SettingsFrame.BackgroundTransparency = 1
+SettingsFrame.Visible = false
+SettingsFrame.ZIndex = 11
+
+local SettingsScroll = Instance.new("ScrollingFrame")
+SettingsScroll.Parent = SettingsFrame
+SettingsScroll.Size = UDim2.new(0.9, 0, 0, 40)
+SettingsScroll.Position = UDim2.new(0.05, 0, 0, 45)
+SettingsScroll.BackgroundTransparency = 1
+SettingsScroll.CanvasSize = UDim2.new(1.6, 0, 0, 0) 
+SettingsScroll.ScrollingDirection = Enum.ScrollingDirection.X
+SettingsScroll.BorderSizePixel = 0
+SettingsScroll.ScrollBarThickness = 4
+SettingsScroll.ScrollBarImageColor3 = Color3.fromRGB(0, 100, 255)
+SettingsScroll.ScrollBarImageTransparency = 0.95
+SettingsScroll.ZIndex = 12
+
+local ScrollLayout = Instance.new("UIListLayout")
+ScrollLayout.Parent = SettingsScroll
+ScrollLayout.FillDirection = Enum.FillDirection.Horizontal
+ScrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ScrollLayout.Padding = UDim.new(0, 8)
+
+local SettingsContentBox = Instance.new("Frame")
+SettingsContentBox.Name = "SettingsContentBox"
+SettingsContentBox.Parent = SettingsFrame
+SettingsContentBox.Size = UDim2.new(0.9, 0, 0, 135)
+SettingsContentBox.Position = UDim2.new(0.05, 0, 0, 95)
+SettingsContentBox.BackgroundColor3 = CurrentBoxBgColor
+SettingsContentBox.BackgroundTransparency = 1
+SettingsContentBox.ZIndex = 12
+Instance.new("UICorner", SettingsContentBox).CornerRadius = UDim.new(0, 6)
+
+local AllUIBoxes = {KeyInput, SubmitBtn, GetLinkBtn, SettingsContentBox, GamesContentBox}
+
+local function AddSmoothAnim(btn, clickCallback, isColorSquare)
+    local scale = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+    
+    local isSizeBtn = (btn.Name == "SizeSmallBtn" or btn.Name == "SizeLargeBtn")
+    -- الشفافية "الطبيعية" لأزرار الحجم هي 0.85 (كما تضعها RefreshSizeButtonsVisuals)
+    local SIZE_BTN_NORMAL_TRANS = 0.85
+    local SIZE_BTN_HOVER_TRANS  = 0.40  -- أوضح عند hover (شفافية أقل)
+    local SIZE_BTN_PRESS_TRANS  = 0.15  -- أوضح جداً عند الضغط
+    local SIZE_BTN_NORMAL_SCALE = 1.0
+    local SIZE_BTN_HOVER_SCALE  = 1.20  -- يكبر كثير عند hover
+    local SIZE_BTN_PRESS_SCALE  = 1.10  -- يكبر أقل عند الضغط
+
+    btn.MouseEnter:Connect(function()
+        if (btn.Name == "SizeSmallBtn" and SizeIndex <= 7) or (btn.Name == "SizeLargeBtn" and SizeIndex == MaxSizeIndex) then return end
+        
+        if isSizeBtn then
+            SafeTween(scale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = SIZE_BTN_HOVER_SCALE})
+            SafeTween(btn, TweenInfo.new(0.15), {BackgroundTransparency = SIZE_BTN_HOVER_TRANS})
+            return
+        end
+
+        local targetScale = (btn:GetAttribute("TargetScale") or 1.0) + 0.02
+        SafeTween(scale, TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Scale = targetScale})
+        
+        local hoverTrans = math.min(1, (btn:GetAttribute("TargetTrans") or 0.92) + 0.05)
+
+        if btn.ClassName == "TextButton" and btn.BackgroundTransparency > 0 then
+            SafeTween(btn, TweenInfo.new(0.12), {BackgroundTransparency = hoverTrans})
+        end
+        if isColorSquare and btn.Name ~= "ActiveColorBtn" then
+            local stroke = btn:FindFirstChild("UIStroke")
+            if stroke then SafeTween(stroke, TweenInfo.new(0.12), {Transparency = 0.6}) end
+        end
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        if isSizeBtn then
+            local leaveTrans = ((btn.Name == "SizeSmallBtn" and SizeIndex <= 7) or (btn.Name == "SizeLargeBtn" and SizeIndex == MaxSizeIndex))
+                and 0.95 or SIZE_BTN_NORMAL_TRANS
+            SafeTween(scale, TweenInfo.new(0.18, Enum.EasingStyle.Sine), {Scale = SIZE_BTN_NORMAL_SCALE})
+            SafeTween(btn, TweenInfo.new(0.18), {BackgroundTransparency = leaveTrans})
+            return
+        end
+
+        local leaveScale = btn:GetAttribute("TargetScale") or 1.0
+        SafeTween(scale, TweenInfo.new(0.12, Enum.EasingStyle.Sine), {Scale = leaveScale})
+        
+        local leaveTrans = btn:GetAttribute("TargetTrans") or 0.92
+
+        if btn.ClassName == "TextButton" and btn.BackgroundTransparency > 0 then
+            SafeTween(btn, TweenInfo.new(0.12), {BackgroundTransparency = leaveTrans})
+        end
+       
+        if isColorSquare and btn.Name ~= "ActiveColorBtn" then
+             local stroke = btn:FindFirstChild("UIStroke")
+             if stroke then SafeTween(stroke, TweenInfo.new(0.12), {Transparency = 1}) end
+        end
+    end)
+    
+    btn.MouseButton1Down:Connect(function()
+        if (btn.Name == "SizeSmallBtn" and SizeIndex <= 7) or (btn.Name == "SizeLargeBtn" and SizeIndex == MaxSizeIndex) then return end
+
+        if isSizeBtn then
+            -- عند الضغط: يكبر + يصير أوضح (عكس باقي الأزرار)
+            SafeTween(scale, TweenInfo.new(0.08, Enum.EasingStyle.Sine), {Scale = SIZE_BTN_PRESS_SCALE})
+            SafeTween(btn, TweenInfo.new(0.08), {BackgroundTransparency = SIZE_BTN_PRESS_TRANS})
+            return
+        end
+
+        local pressScale = (btn:GetAttribute("TargetScale") or 1.0) - 0.04
+        SafeTween(scale, TweenInfo.new(0.1, Enum.EasingStyle.Sine), {Scale = pressScale})
+        local pressTrans = math.min(1, (btn:GetAttribute("TargetTrans") or 0.92) + 0.06)
+        if btn.ClassName == "TextButton" and btn.BackgroundTransparency > 0 then
+            SafeTween(btn, TweenInfo.new(0.08), {BackgroundTransparency = pressTrans})
+        end
+    end)
+  
+    btn.MouseButton1Click:Connect(function()
+         if (btn.Name == "SizeSmallBtn" and SizeIndex <= 7) or (btn.Name == "SizeLargeBtn" and SizeIndex == MaxSizeIndex) then return end
+        PlayClickSound()
+        if clickCallback then clickCallback() end
+    end)
+end
+
+-- ====================================================================
+
+-- ====================================================================
+local LanguageContainer = Instance.new("Frame")
+LanguageContainer.Name = "LanguageContainer"
+LanguageContainer.Parent = SettingsContentBox
+LanguageContainer.Size = UDim2.new(1, 0, 1, 0)
+LanguageContainer.BackgroundTransparency = 1
+LanguageContainer.Visible = true
+
+local LangVerticalScroll = Instance.new("ScrollingFrame")
+LangVerticalScroll.Parent = LanguageContainer
+LangVerticalScroll.Size = UDim2.new(0.48, 0, 0.88, 0)
+LangVerticalScroll.Position = UDim2.new(0.03, 0, 0.06, 0)
+LangVerticalScroll.BackgroundTransparency = 1
+LangVerticalScroll.CanvasSize = UDim2.new(0, 0, 2.3, 0) 
+LangVerticalScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+LangVerticalScroll.ZIndex = 15
+LangVerticalScroll.BorderSizePixel = 0
+LangVerticalScroll.ScrollBarThickness = 4
+LangVerticalScroll.ScrollBarImageColor3 = Color3.fromRGB(0, 100, 255)
+LangVerticalScroll.ScrollBarImageTransparency = 0.95
+
+local LangVerticalLayout = Instance.new("UIListLayout")
+LangVerticalLayout.Parent = LangVerticalScroll
+LangVerticalLayout.FillDirection = Enum.FillDirection.Vertical
+LangVerticalLayout.SortOrder = Enum.SortOrder.LayoutOrder
+LangVerticalLayout.Padding = UDim.new(0, 5)
+
+local RightControlFrame = Instance.new("Frame")
+RightControlFrame.Parent = LanguageContainer
+RightControlFrame.Size = UDim2.new(0.44, 0, 0.88, 0)
+RightControlFrame.Position = UDim2.new(0.53, 0, 0.06, 0)
+RightControlFrame.BackgroundTransparency = 1
+RightControlFrame.ZIndex = 15
+
+local LangSectionTitle = Instance.new("TextLabel")
+LangSectionTitle.Parent = RightControlFrame
+LangSectionTitle.Size = UDim2.new(1, 0, 0, 20)
+LangSectionTitle.Position = UDim2.new(0, 0, 0, 5)
+LangSectionTitle.BackgroundTransparency = 1
+LangSectionTitle.Font = Enum.Font.Gotham
+LangSectionTitle.Text = Translations.English.ChooseLang
+LangSectionTitle.TextColor3 = Color3.fromRGB(240, 240, 240)
+LangSectionTitle.TextSize = 9.5
+LangSectionTitle.TextTransparency = 0
+LangSectionTitle.ZIndex = 16
+
+local ApplyLangBtn = Instance.new("TextButton")
+ApplyLangBtn.Parent = RightControlFrame
+ApplyLangBtn.Size = UDim2.new(1, 0, 0, 28)
+ApplyLangBtn.Position = UDim2.new(0, 0, 0, 35)
+ApplyLangBtn.BackgroundColor3 = CurrentBoxBgColor
+ApplyLangBtn.Font = Enum.Font.Gotham
+ApplyLangBtn.Text = Translations.English.ApplyLang
+ApplyLangBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ApplyLangBtn.TextSize = 9
+ApplyLangBtn.BackgroundTransparency = 0.92
+ApplyLangBtn.TextTransparency = 0
+ApplyLangBtn.ZIndex = 16
+ApplyLangBtn.AutoButtonColor = false
+Instance.new("UICorner", ApplyLangBtn).CornerRadius = UDim.new(0, 4)
+table.insert(AllUIBoxes, ApplyLangBtn)
+
+local ResetLangBtn = Instance.new("TextButton")
+ResetLangBtn.Parent = RightControlFrame
+ResetLangBtn.Size = UDim2.new(1, 0, 0, 28)
+ResetLangBtn.Position = UDim2.new(0, 0, 0, 70)
+ResetLangBtn.BackgroundColor3 = CurrentBoxBgColor
+ResetLangBtn.Font = Enum.Font.Gotham
+ResetLangBtn.Text = Translations.English.ResetLang
+ResetLangBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ResetLangBtn.TextSize = 9
+ResetLangBtn.BackgroundTransparency = 0.92
+ResetLangBtn.TextTransparency = 0
+ResetLangBtn.ZIndex = 16
+ResetLangBtn.AutoButtonColor = false
+Instance.new("UICorner", ResetLangBtn).CornerRadius = UDim.new(0, 4)
+table.insert(AllUIBoxes, ResetLangBtn)
+
+local LangInfoLabel = Instance.new("TextLabel")
+LangInfoLabel.Parent = RightControlFrame
+LangInfoLabel.Size = UDim2.new(1, 0, 0, 35)
+LangInfoLabel.Position = UDim2.new(0, 0, 0, 105)
+LangInfoLabel.BackgroundTransparency = 1
+LangInfoLabel.Font = Enum.Font.Gotham
+LangInfoLabel.Text = "Languages cannot be changed. This section is for display only. Change the language in Roblox settings."
+LangInfoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+LangInfoLabel.TextSize = 8
+LangInfoLabel.TextWrapped = true
+LangInfoLabel.TextXAlignment = Enum.TextXAlignment.Center
+LangInfoLabel.TextTransparency = 0
+LangInfoLabel.ZIndex = 16
+
+-- ====================================================================
+
+-- ====================================================================
+local UIThemeContainer = Instance.new("Frame")
+UIThemeContainer.Name = "UIThemeContainer"
+UIThemeContainer.Parent = SettingsContentBox
+UIThemeContainer.Size = UDim2.new(1, 0, 1, 0)
+UIThemeContainer.BackgroundTransparency = 1
+UIThemeContainer.Visible = false
+
+local ThemeMainMenu = Instance.new("Frame")
+ThemeMainMenu.Parent = UIThemeContainer
+ThemeMainMenu.Size = UDim2.new(0.35, 0, 0.85, 0)
+ThemeMainMenu.Position = UDim2.new(0.04, 0, 0.07, 0)
+ThemeMainMenu.BackgroundColor3 = CurrentBoxBgColor
+ThemeMainMenu.BackgroundTransparency = 0.92
+ThemeMainMenu.ZIndex = 15
+Instance.new("UICorner", ThemeMainMenu).CornerRadius = UDim.new(0, 6)
+table.insert(AllUIBoxes, ThemeMainMenu)
+
+local ThemeLayout = Instance.new("UIListLayout")
+ThemeLayout.Parent = ThemeMainMenu
+ThemeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ThemeLayout.Padding = UDim.new(0, 8)
+
+local ThemePadding = Instance.new("UIPadding")
+ThemePadding.Parent = ThemeMainMenu
+ThemePadding.PaddingTop = UDim.new(0, 10)
+
+local function CreateThemeListButton(name, parent)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.85, 0, 0, 24) 
+    btn.BackgroundColor3 = CurrentBoxBgColor
+    btn.BackgroundTransparency = 0.96 
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextTransparency = 0.5
+    btn.Font = Enum.Font.Gotham 
+    btn.TextSize = 9.5
+    btn.Parent = parent
+    btn.ZIndex = 16
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    
+    local scale = Instance.new("UIScale", btn)
+    scale.Scale = 0.96
+    
+    table.insert(AllUIBoxes, btn)
+    return btn
+end
+
+local SizeSquareBtn = CreateThemeListButton(Translations.English.UISize, ThemeMainMenu)
+local AnimSquareBtn = CreateThemeListButton(Translations.English.UIRedAnim, ThemeMainMenu)
+local ColorSquareBtn = CreateThemeListButton(Translations.English.UIColors, ThemeMainMenu)
+
+local ActiveThemeTab = SizeSquareBtn
+
+local RightSideSettings = Instance.new("Frame")
+RightSideSettings.Name = "RightSideSettings"
+RightSideSettings.Parent = UIThemeContainer
+RightSideSettings.Size = UDim2.new(0.55, 0, 0.85, 0)
+RightSideSettings.Position = UDim2.new(0.42, 0, 0.07, 0)
+RightSideSettings.BackgroundTransparency = 1
+RightSideSettings.ZIndex = 15
+
+local function CreateSubTitle(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = parent
+    lbl.Size = UDim2.new(1, 0, 0, 25)
+    lbl.Position = UDim2.new(0, 0, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham 
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(240, 240, 240)
+    lbl.TextSize = 12
+    lbl.ZIndex = 16
+    lbl.TextTransparency = 1
+    return lbl
+end
+
+local SizeSubMenu = Instance.new("Frame")
+SizeSubMenu.Parent = RightSideSettings
+SizeSubMenu.Size = UDim2.new(1, 0, 1, 0)
+SizeSubMenu.BackgroundTransparency = 1
+SizeSubMenu.Visible = false
+
+local SizeTitle = CreateSubTitle(SizeSubMenu, Translations.English.ChangeSize)
+
+local SizeValueLabel = Instance.new("TextLabel")
+SizeValueLabel.Parent = SizeSubMenu
+SizeValueLabel.Position = UDim2.new(0.4, 0, 0.35, 0)
+SizeValueLabel.Size = UDim2.new(0, 40, 0, 40)
+SizeValueLabel.BackgroundTransparency = 1
+SizeValueLabel.Font = Enum.Font.Gotham
+SizeValueLabel.Text = tostring(SizeIndex)
+SizeValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeValueLabel.TextSize = 13 
+SizeValueLabel.ZIndex = 16
+SizeValueLabel.TextTransparency = 1
+
+local SizeSmallBtn = Instance.new("TextButton")
+SizeSmallBtn.Name = "SizeSmallBtn"
+SizeSmallBtn.Parent = SizeSubMenu
+SizeSmallBtn.Position = UDim2.new(0.15, 0, 0.4, 0)
+SizeSmallBtn.Size = UDim2.new(0, 30, 0, 30)
+SizeSmallBtn.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+SizeSmallBtn.BackgroundTransparency = 1 
+SizeSmallBtn.Text = "-"
+SizeSmallBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeSmallBtn.Font = Enum.Font.GothamBold
+SizeSmallBtn.TextSize = 20
+SizeSmallBtn.ZIndex = 16
+SizeSmallBtn.TextTransparency = 1
+SizeSmallBtn.AutoButtonColor = false
+Instance.new("UICorner", SizeSmallBtn).CornerRadius = UDim.new(0, 6)
+
+local SizeLargeBtn = Instance.new("TextButton")
+SizeLargeBtn.Name = "SizeLargeBtn"
+SizeLargeBtn.Parent = SizeSubMenu
+SizeLargeBtn.Position = UDim2.new(0.7, 0, 0.4, 0)
+SizeLargeBtn.Size = UDim2.new(0, 30, 0, 30)
+SizeLargeBtn.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+SizeLargeBtn.BackgroundTransparency = 1 
+SizeLargeBtn.Text = "+"
+SizeLargeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeLargeBtn.Font = Enum.Font.GothamBold
+SizeLargeBtn.TextSize = 20
+SizeLargeBtn.ZIndex = 16
+SizeLargeBtn.TextTransparency = 1
+SizeLargeBtn.AutoButtonColor = false
+Instance.new("UICorner", SizeLargeBtn).CornerRadius = UDim.new(0, 6)
+
+local AnimSubMenu = Instance.new("Frame")
+AnimSubMenu.Parent = RightSideSettings
+AnimSubMenu.Size = UDim2.new(1, 0, 1, 0)
+AnimSubMenu.BackgroundTransparency = 1
+AnimSubMenu.Visible = false
+
+local AnimTitle = CreateSubTitle(AnimSubMenu, Translations.English.ChangeAnim)
+
+local Anim1vBtn = Instance.new("TextButton")
+Anim1vBtn.Parent = AnimSubMenu
+Anim1vBtn.Size = UDim2.new(0.28, 0, 0, 40)
+Anim1vBtn.Position = UDim2.new(0.03, 0, 0.35, 0)
+Anim1vBtn.BackgroundColor3 = CurrentBoxBgColor
+Anim1vBtn.BackgroundTransparency = 1 
+Anim1vBtn.Text = Translations.English.Anim1
+Anim1vBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Anim1vBtn.Font = Enum.Font.Gotham
+Anim1vBtn.TextSize = 9
+Anim1vBtn.ZIndex = 16
+Anim1vBtn.TextTransparency = 1
+Anim1vBtn.AutoButtonColor = false
+Instance.new("UICorner", Anim1vBtn).CornerRadius = UDim.new(0, 6)
+table.insert(AllUIBoxes, Anim1vBtn)
+
+local Anim2vBtn = Instance.new("TextButton")
+Anim2vBtn.Parent = AnimSubMenu
+Anim2vBtn.Size = UDim2.new(0.28, 0, 0, 40)
+Anim2vBtn.Position = UDim2.new(0.36, 0, 0.35, 0)
+Anim2vBtn.BackgroundColor3 = CurrentBoxBgColor
+Anim2vBtn.BackgroundTransparency = 1 
+Anim2vBtn.Text = Translations.English.Anim2
+Anim2vBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Anim2vBtn.Font = Enum.Font.Gotham
+Anim2vBtn.TextSize = 9
+Anim2vBtn.ZIndex = 16
+Anim2vBtn.TextTransparency = 1
+Anim2vBtn.AutoButtonColor = false
+Instance.new("UICorner", Anim2vBtn).CornerRadius = UDim.new(0, 6)
+table.insert(AllUIBoxes, Anim2vBtn)
+
+local Anim3vBtn = Instance.new("TextButton")
+Anim3vBtn.Parent = AnimSubMenu
+Anim3vBtn.Size = UDim2.new(0.28, 0, 0, 40)
+Anim3vBtn.Position = UDim2.new(0.69, 0, 0.35, 0)
+Anim3vBtn.BackgroundColor3 = CurrentBoxBgColor
+Anim3vBtn.BackgroundTransparency = 1 
+Anim3vBtn.Text = Translations.English.Anim3
+Anim3vBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Anim3vBtn.Font = Enum.Font.Gotham
+Anim3vBtn.TextSize = 9
+Anim3vBtn.ZIndex = 16
+Anim3vBtn.TextTransparency = 1
+Anim3vBtn.AutoButtonColor = false
+Instance.new("UICorner", Anim3vBtn).CornerRadius = UDim.new(0, 6)
+table.insert(AllUIBoxes, Anim3vBtn)
+
+local ColorSubMenu = Instance.new("Frame")
+ColorSubMenu.Parent = RightSideSettings
+ColorSubMenu.Size = UDim2.new(1, 0, 1, 0)
+ColorSubMenu.BackgroundTransparency = 1
+ColorSubMenu.Visible = false
+
+local ColorTitle = CreateSubTitle(ColorSubMenu, Translations.English.ChooseColor)
+
+local function CreateColorButton(bgColor, posX, parent)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Position = UDim2.new(posX, 0, 0.35, 0)
+    btn.Size = UDim2.new(0, 35, 0, 35)
+    btn.BackgroundColor3 = bgColor
+    btn.Text = ""
+    btn.ZIndex = 16
+    btn.BackgroundTransparency = 1
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+   
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 1.5
+    stroke.Transparency = 1
+   
+    return btn, stroke
+end
+
+local NormalRedBtn,  NormalStroke  = CreateColorButton(Color3.fromRGB(255, 0, 0),     0.03, ColorSubMenu)
+local DarkRedBtn,    DarkStroke    = CreateColorButton(Color3.fromRGB(130, 0, 0),     0.27, ColorSubMenu)
+local BlueBtn,       BlueStroke    = CreateColorButton(Color3.fromRGB(0, 100, 255),   0.51, ColorSubMenu)
+local LightBlueBtn,  LightBlueStroke = CreateColorButton(Color3.fromRGB(0, 200, 255), 0.75, ColorSubMenu)
+
+
+local function CreateColorButton2(bgColor, posX, parent)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Position = UDim2.new(posX, 0, 0.72, 0)
+    btn.Size = UDim2.new(0, 35, 0, 35)
+    btn.BackgroundColor3 = bgColor
+    btn.Text = ""
+    btn.ZIndex = 16
+    btn.BackgroundTransparency = 1
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 1.5
+    stroke.Transparency = 1
+  
+    return btn, stroke
+end
+
+local PinkBtn,      PinkStroke     = CreateColorButton2(Color3.fromRGB(255, 105, 180), 0.03, ColorSubMenu)
+local DarkPinkBtn,  DarkPinkStroke = CreateColorButton2(Color3.fromRGB(180, 0, 100),   0.27, ColorSubMenu)
+local LightPinkBtn, LightPinkStroke = CreateColorButton2(Color3.fromRGB(255, 182, 213), 0.51, ColorSubMenu)
+
+local CurrentThemeSubPage = nil
+
+local function RefreshSizeButtonsVisuals()
+    SizeValueLabel.Text = tostring(SizeIndex)
+   
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    
+    if SizeIndex <= 7 then
+        SafeTween(SizeSmallBtn, ti, {BackgroundTransparency = 0.95, TextTransparency = 1})
+    else
+        SafeTween(SizeSmallBtn, ti, {BackgroundTransparency = 0.85, TextTransparency = 0})
+    end
+    
+    if SizeIndex == MaxSizeIndex then
+        SafeTween(SizeLargeBtn, ti, {BackgroundTransparency = 0.95, TextTransparency = 1})
+    else
+        SafeTween(SizeLargeBtn, ti, {BackgroundTransparency = 0.85, TextTransparency = 0})
+    end
+end
+
+local function UpdateThemeTabsVisuals()
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tabs = {SizeSquareBtn, AnimSquareBtn, ColorSquareBtn}
+    for _, btn in ipairs(tabs) do
+        local scaleObj = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+        if btn == ActiveThemeTab then
+            btn:SetAttribute("TargetScale", 1.06)
+            btn:SetAttribute("TargetTrans", 0.95)
+           
+            SafeTween(btn, ti, {
+                BackgroundColor3 = CurrentMainBgColor, 
+                BackgroundTransparency = 0.95, 
+                TextColor3 = Color3.fromRGB(255, 255, 255),
+                TextTransparency = 0
+            })
+         
+            SafeTween(scaleObj, ti, {Scale = 1.06})
+        else
+            btn:SetAttribute("TargetScale", 0.94)
+            btn:SetAttribute("TargetTrans", 0.75)
+            SafeTween(btn, ti, {
+                BackgroundColor3 = CurrentBoxBgColor,
+                BackgroundTransparency = 0.75, 
+                TextColor3 = Color3.fromRGB(255, 255, 255),
+                TextTransparency = 0.5
+            })
+            SafeTween(scaleObj, ti, {Scale = 0.94}) 
+        end
+    end
+end
+
+local function SwitchThemeSubPage(targetPage, activeBtn)
+    if CurrentThemeSubPage == targetPage and CurrentThemeSubPage ~= nil then return end
+    local oldPage = CurrentThemeSubPage
+    CurrentThemeSubPage = targetPage
+ 
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    
+    if oldPage then
+        for _, el in ipairs(oldPage:GetDescendants()) do
+            if el:IsA("TextLabel") or el:IsA("TextButton") then
+                SafeTween(el, ti, {TextTransparency = 1, BackgroundTransparency = 1})
+            elseif el:IsA("UIStroke") then
+                SafeTween(el, ti, {Transparency = 1})
+            end
+        end
+        task.delay(0.3, function() oldPage.Visible = false end)
+    end
+    
+    if targetPage then
+        targetPage.Visible = true
+        for _, el in ipairs(targetPage:GetDescendants()) do
+            if el:IsA("TextLabel") then
+                SafeTween(el, ti, {TextTransparency = 0})
+            elseif el:IsA("TextButton") then
+                 SafeTween(el, ti, {TextTransparency = 0})
+                 if el.Name == "SizeSmallBtn" or el.Name == "SizeLargeBtn" then
+
+                elseif el.Name == "ActiveColorBtn" or el == NormalRedBtn or el == DarkRedBtn or el == BlueBtn or el == LightBlueBtn or el == PinkBtn or el == DarkPinkBtn or el == LightPinkBtn then
+                     SafeTween(el, ti, {BackgroundTransparency = el:GetAttribute("TargetTrans") or 0})
+                else
+                    SafeTween(el, ti, {BackgroundTransparency = el:GetAttribute("TargetTrans") or 0.92})
+                end
+            elseif el:IsA("UIStroke") then
+                if el.Parent and el.Parent.Name == "ActiveColorBtn" then
+                     SafeTween(el, ti, {Transparency = 0})
+                end
+            end
+        end
+    
+        if targetPage == SizeSubMenu then
+            RefreshSizeButtonsVisuals()
+        end
+    end
+end
+
+local function SetupThemeTabInteractions(btn, targetSubMenu)
+    local scaleObj = btn:FindFirstChildOfClass("UIScale")
+    
+    btn.MouseEnter:Connect(function()
+        if ActiveThemeTab ~= btn then
+            SafeTween(btn, TweenInfo.new(0.12), {TextTransparency = 0.15})
+            if scaleObj then SafeTween(scaleObj, TweenInfo.new(0.12), {Scale = 1.0}) end
+        end
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        if ActiveThemeTab ~= btn then
+            SafeTween(btn, TweenInfo.new(0.12), {TextTransparency = 0.5})
+            local leaveScale = btn:GetAttribute("TargetScale") or 0.94
+            if scaleObj then SafeTween(scaleObj, TweenInfo.new(0.12), {Scale = leaveScale}) end
+        end
+    end)
+    
+    btn.MouseButton1Click:Connect(function()
+        PlayClickSound()
+        ActiveThemeTab = btn
+        UpdateThemeTabsVisuals()
+        SwitchThemeSubPage(targetSubMenu, btn)
+    end)
+end
+
+SetupThemeTabInteractions(SizeSquareBtn, SizeSubMenu)
+SetupThemeTabInteractions(AnimSquareBtn, AnimSubMenu)
+SetupThemeTabInteractions(ColorSquareBtn, ColorSubMenu)
+
+local function UpdateAnimButtons()
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local animBtns = {Anim1vBtn, Anim2vBtn, Anim3vBtn}
+    for i, btn in ipairs(animBtns) do
+        local style = i .. "v"
+        local scaleObj = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+        if CurrentAnimStyle == style then
+            -- الزر المختار: أكبر بشوي وشفافية 0.90
+            btn:SetAttribute("TargetScale", 1.04)
+            btn:SetAttribute("TargetTrans", 0.90)
+            SafeTween(scaleObj, ti, {Scale = 1.04})
+            SafeTween(btn, ti, {BackgroundTransparency = 0.90, TextTransparency = 0})
+        else
+            -- الباقي: حجم طبيعي وشفافية 0.80
+            btn:SetAttribute("TargetScale", 1.0)
+            btn:SetAttribute("TargetTrans", 0.80)
+            SafeTween(scaleObj, ti, {Scale = 1.0})
+            SafeTween(btn, ti, {BackgroundTransparency = 0.80, TextTransparency = 0})
+        end
+    end
+end
+
+UpdateAnimButtons()
+
+AddSmoothAnim(Anim1vBtn, function() CurrentAnimStyle = "1v"; UpdateAnimButtons(); if SaveSettings then SaveSettings() end end, false)
+AddSmoothAnim(Anim2vBtn, function() CurrentAnimStyle = "2v"; UpdateAnimButtons(); if SaveSettings then SaveSettings() end end, false)
+AddSmoothAnim(Anim3vBtn, function() CurrentAnimStyle = "3v"; UpdateAnimButtons(); if SaveSettings then SaveSettings() end end, false)
+
+-- ====================================================================
+
+-- ====================================================================
+local UpdatesContainer = Instance.new("Frame")
+UpdatesContainer.Name = "UpdatesContainer"
+UpdatesContainer.Parent = SettingsContentBox
+UpdatesContainer.Size = UDim2.new(1, 0, 1, 0)
+UpdatesContainer.BackgroundTransparency = 1
+UpdatesContainer.Visible = false
+
+local UpdatesScroll = Instance.new("ScrollingFrame")
+UpdatesScroll.Parent = UpdatesContainer
+UpdatesScroll.Size = UDim2.new(0.94, 0, 0.88, 0)
+UpdatesScroll.Position = UDim2.new(0.03, 0, 0.06, 0)
+UpdatesScroll.BackgroundTransparency = 1
+UpdatesScroll.CanvasSize = UDim2.new(0, 0, 3.2, 0) 
+UpdatesScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+UpdatesScroll.ZIndex = 15
+UpdatesScroll.BorderSizePixel = 0
+UpdatesScroll.ScrollBarThickness = 4
+UpdatesScroll.ScrollBarImageColor3 = Color3.fromRGB(0, 100, 255)
+UpdatesScroll.ScrollBarImageTransparency = 0.95
+
+local UpdatesLayout = Instance.new("UIListLayout")
+UpdatesLayout.Parent = UpdatesScroll
+UpdatesLayout.FillDirection = Enum.FillDirection.Vertical
+UpdatesLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UpdatesLayout.Padding = UDim.new(0, 8)
+UpdatesLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local DateLabel = Instance.new("TextLabel")
+DateLabel.Parent = UpdatesScroll
+DateLabel.Size = UDim2.new(1, 0, 0, 20)
+DateLabel.BackgroundTransparency = 1
+DateLabel.Font = Enum.Font.Gotham
+DateLabel.Text = Translations.English.UpdateDate
+DateLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+DateLabel.TextSize = 10
+DateLabel.ZIndex = 16
+DateLabel.TextTransparency = 1
+
+local UpdateBoxesList = {}
+
+local function CreateUpdateBox(gameName, defaultUpdateText)
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0.96, 0, 0, 55)
+    box.BackgroundColor3 = CurrentBoxBgColor
+    box.BackgroundTransparency = 1
+    box.ZIndex = 15
+    box.Parent = UpdatesScroll
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
+
+    local title = Instance.new("TextLabel")
+    title.Parent = box
+    title.Size = UDim2.new(1, -10, 0, 18)
+    title.Position = UDim2.new(0, 5, 0, 4)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.Gotham
+    title.Text = gameName
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 11
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 16
+    title.TextTransparency = 1
+
+    local desc = Instance.new("TextLabel")
+    desc.Parent = box
+    desc.Size = UDim2.new(1, -10, 1, -25)
+    desc.Position = UDim2.new(0, 5, 0, 22)
+    desc.BackgroundTransparency = 1
+    desc.Font = Enum.Font.Gotham
+    desc.Text = defaultUpdateText
+    desc.TextColor3 = Color3.fromRGB(200, 200, 200)
+    desc.TextSize = 9.5
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextYAlignment = Enum.TextYAlignment.Top
+    desc.TextWrapped = true
+    desc.ZIndex = 16
+    desc.TextTransparency = 1
+    
+    table.insert(AllUIBoxes, box) 
+    
+    local boxData = {
+        Frame = box,
+        TitleLabel = title,
+        DescLabel = desc,
+        GameName = gameName
+    }
+    table.insert(UpdateBoxesList, boxData)
+    
+    return box
+end
+
+CreateUpdateBox("Combat Warriors", Translations.English.UpdateCW)
+CreateUpdateBox("Kaiju Alpha", Translations.English.UpdateKA)
+CreateUpdateBox("Kaiju Universe", Translations.English.UpdateKU)
+CreateUpdateBox("Dinosaur Simulator", Translations.English.UpdateDS)
+CreateUpdateBox("Kaiju Multiverse", Translations.English.UpdateKM)
+
+-- ====================================================================
+
+-- ====================================================================
+local CreditsContainer = Instance.new("Frame")
+CreditsContainer.Name = "CreditsContainer"
+CreditsContainer.Parent = SettingsContentBox
+CreditsContainer.Size = UDim2.new(1, 0, 1, 0)
+CreditsContainer.BackgroundTransparency = 1
+CreditsContainer.Visible = false
+
+local CreditsLayout = Instance.new("UIListLayout")
+CreditsLayout.Parent = CreditsContainer
+CreditsLayout.FillDirection = Enum.FillDirection.Vertical
+CreditsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+CreditsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+CreditsLayout.Padding = UDim.new(0, 4) 
+
+local CreditsPadding = Instance.new("UIPadding")
+CreditsPadding.Parent = CreditsContainer
+CreditsPadding.PaddingTop = UDim.new(0, 8) 
+
+local CreditsImageFrame = Instance.new("Frame")
+CreditsImageFrame.Parent = CreditsContainer
+CreditsImageFrame.Size = UDim2.new(1, 0, 0, 55) 
+CreditsImageFrame.BackgroundTransparency = 1
+CreditsImageFrame.LayoutOrder = 1
+CreditsImageFrame.ZIndex = 20
+     
+local CreditsImage = Instance.new("ImageLabel")
+CreditsImage.Parent = CreditsImageFrame
+CreditsImage.Size = UDim2.new(0, 50, 0, 50) 
+CreditsImage.Position = UDim2.new(0.5, -25, 0, 0)
+CreditsImage.BackgroundTransparency = 1
+CreditsImage.Image = "rbxthumb://type=Asset&id=87319366743057&w=150&h=150" 
+CreditsImage.ImageTransparency = 0.50 
+CreditsImage.ZIndex = 25
+
+task.spawn(function()
+    pcall(function()
+        ContentProvider:PreloadAsync({CreditsImage})
+    end)
+end)
+
+local function CreateCreditTextLine(order, color)
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = CreditsContainer
+    lbl.Size = UDim2.new(0.96, 0, 0, 24)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextColor3 = color
+    lbl.TextSize = 7
+    lbl.TextWrapped = true
+    lbl.ZIndex = 16
+    lbl.TextTransparency = 1
+    lbl.LayoutOrder = order
+    return lbl
+end
+
+local CreditTextLine1 = CreateCreditTextLine(2, Color3.fromRGB(240, 240, 240))
+local CreditTextLine2 = CreateCreditTextLine(3, Color3.fromRGB(200, 200, 200))
+
+local SelectedLanguage = _InitLang
+local TargetLanguage = _InitLang
+
+local LanguagesList = {"English", "Arabic", "Spanish", "French", "German", "Japanese", "Chinese", "Russian", "Turkish", "Hindi"}
+local LanguageButtons = {}
+local SettingButtonsList = {} 
+
+local NavKeyBtn = Instance.new("TextButton")
+local NavGamesBtn = Instance.new("TextButton")
+local NavSettingsBtn = Instance.new("TextButton") 
+local ExitBtn = Instance.new("TextButton")
+local WarningLabel = Instance.new("TextLabel")
+
+local function UpdateTranslations()
+    local t = Translations[SelectedLanguage] or Translations.English
+  
+    if CurrentPage == "Key" then
+        Title.Text = IsLoggedIn and t.AlreadyLogged or t.KeySystem
+    elseif CurrentPage == "Games" then
+        Title.Text = IsLoggedIn and t.SelectGame or t.RequireKeyFirst
+    elseif CurrentPage == "Settings" then
+        Title.Text = t.Settings
+    end
+    
+    KeyDescLabel.Text = t.KeySystemDesc or ""
+
+    KeyInput.PlaceholderText = t.EnterKey
+    GetLinkBtn.Text = t.GetKey
+    SubmitBtn.Text = t.Login
+  
+    NavKeyBtn.Text = t.KeySystem
+    NavGamesBtn.Text = t.Games
+    NavSettingsBtn.Text = t.Settings
+    ExitBtn.Text = t.Exit
+    
+    -- تم تعطيل نص التحذير بناءً على طلب المستخدم (WarningLabel مخفي ونصه فارغ دائماً)
+    -- WarningLabel.Text = t.Warning
+    LangSectionTitle.Text = t.ChooseLang
+    ApplyLangBtn.Text = t.ApplyLang
+    ResetLangBtn.Text = t.ResetLang
+    
+    SizeSquareBtn.Text = t.UISize or "UI SIZE"
+    ColorSquareBtn.Text = t.UIColors or "COLORS"
+    AnimSquareBtn.Text = t.UIRedAnim or "ANIMATION"
+
+    SizeTitle.Text = t.ChangeSize or "CHANGE SIZE"
+    AnimTitle.Text = t.ChangeAnim or "CHANGE ANIMATION"
+    ColorTitle.Text = t.ChooseColor or "CHOOSE COLOR"
+   
+    Anim1vBtn.Text = t.Anim1 or "v1\n(Fast Beam)"
+    Anim2vBtn.Text = t.Anim2 or "v2\n(Vortex)"
+    Anim3vBtn.Text = t.Anim3 or "v3\n(The Sun)"
+
+    if SettingButtonsList[1] then SettingButtonsList[1].Text = t.LanguageSet end
+    if SettingButtonsList[2] then SettingButtonsList[2].Text = t.UIThemeSet end
+    if SettingButtonsList[3] then SettingButtonsList[3].Text = t.LatestUpdates end
+    if SettingButtonsList[4] then SettingButtonsList[4].Text = t.DevCreditsSet end
+    
+    DateLabel.Text = t.UpdateDate
+    for _, boxData in ipairs(UpdateBoxesList) do
+        if boxData.GameName == "Combat Warriors" then boxData.DescLabel.Text = t.UpdateCW
+        elseif boxData.GameName == "Kaiju Alpha" then boxData.DescLabel.Text = t.UpdateKA
+        elseif boxData.GameName == "Kaiju Universe" then boxData.DescLabel.Text = t.UpdateKU
+        elseif boxData.GameName == "Dinosaur Simulator" then boxData.DescLabel.Text = t.UpdateDS
+        elseif boxData.GameName == "Kaiju Multiverse" then boxData.DescLabel.Text = t.UpdateKM
+        end
+    end
+    
+    CreditTextLine1.Text = (t.Credit1 or "") .. " | " .. (t.Credit2 or "")
+    CreditTextLine2.Text = (t.Credit3 or "") .. " " .. (t.Credit4 or "") .. " | " .. (t.Credit5 or "")
+end
+
+local function UpdateLanguageVisuals()
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    for langName, btn in pairs(LanguageButtons) do
+        local scaleObj = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+        if langName == TargetLanguage then
+            btn:SetAttribute("TargetScale", 1.06)
+            btn:SetAttribute("TargetTrans", 0.95)
+            SafeTween(btn, ti, {
+                BackgroundColor3 = CurrentMainBgColor, 
+                BackgroundTransparency = 0.95, 
+                TextColor3 = Color3.fromRGB(255, 255, 255),
+                TextTransparency = 0
+            })
+            SafeTween(scaleObj, ti, {Scale = 1.06}) 
+        else
+            btn:SetAttribute("TargetScale", 0.94)
+            btn:SetAttribute("TargetTrans", 0.75)
+            SafeTween(btn, ti, {
+                BackgroundColor3 = CurrentBoxBgColor,
+                BackgroundTransparency = 0.75, 
+                TextColor3 = Color3.fromRGB(255, 255, 255),
+                TextTransparency = 0.5
+            })
+            SafeTween(scaleObj, ti, {Scale = 0.94}) 
+        end
+    end
+end
+
+local ActiveColorBtn = PinkBtn
+PinkBtn.Name = "ActiveColorBtn"
+
+local function ApplyColorTheme(glowColor, activeBtn)
+    TargetGlowColor = glowColor
+    
+    local r, g, b = glowColor.R, glowColor.G, glowColor.B
+    local mainColor = Color3.new(r * 0.14, g * 0.14, b * 0.14)
+    local boxColor = Color3.new(r * 0.08, g * 0.08, b * 0.08)
+    
+    CurrentMainBgColor = mainColor
+    CurrentBoxBgColor = boxColor
+
+    local ti = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    SafeTween(MainFrame, ti, {BackgroundColor3 = mainColor})
+    
+    for _, box in pairs(AllUIBoxes) do
+        if box and (box:IsA("TextButton") or box:IsA("TextBox") or box:IsA("Frame")) then 
+            SafeTween(box, ti, {BackgroundColor3 = boxColor}) 
+        end
+    end
+
+    for _, btn in pairs(SettingButtonsList) do
+        if btn then SafeTween(btn, ti, {BackgroundColor3 = boxColor}) end
+    end
+    
+    SafeTween(SizeSmallBtn, ti, {BackgroundColor3 = glowColor})
+    SafeTween(SizeLargeBtn, ti, {BackgroundColor3 = glowColor})
+    SafeTween(SettingsScroll, ti, {ScrollBarImageColor3 = glowColor})
+    SafeTween(LangVerticalScroll, ti, {ScrollBarImageColor3 = glowColor})
+    SafeTween(UpdatesScroll, ti, {ScrollBarImageColor3 = glowColor})
+    SafeTween(GameScrollFrame, ti, {ScrollBarImageColor3 = glowColor})
+    LaunchBtn.BackgroundColor3 = glowColor
+
+    -- تحديث لون زر RUN وزر Back في DinoLaunchPanel عند تغيير الثيم
+    if DinoRunBtn then
+        DinoRunBtn.BackgroundColor3 = glowColor
+    end
+    if DinoCloseBtn then
+        DinoCloseBtn.BackgroundColor3 = glowColor
+    end
+    if DinoTextScroll then
+        SafeTween(DinoTextScroll, ti, {ScrollBarImageColor3 = glowColor})
+    end
+    
+    UpdateLanguageVisuals() 
+    UpdateThemeTabsVisuals()
+    
+    ActiveColorBtn.Name = "ColorBtn"
+    ActiveColorBtn = activeBtn
+    ActiveColorBtn.Name = "ActiveColorBtn"
+
+    -- ====================================================================
+    -- [إصلاح]: أزرار الألوان تتحرك بعيداً عن الزر المحدد بدل ما تغطي عليه
+    -- كل زر له موضعه الأصلي (posX) محفوظ كـ Attribute، ونحسب إزاحة بسيطة
+    -- بناءً على اتجاهه (يسار/يمين) من الزر النشط وحجم تكبيره (1.15 scale).
+    -- ====================================================================
+    local colorBtnsList = {NormalRedBtn, DarkRedBtn, BlueBtn, LightBlueBtn, PinkBtn, DarkPinkBtn, LightPinkBtn}
+    local tiScale = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tiPos   = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    -- نحفظ الـ OriginalX لكل زر أول مرة (إن لم يكن محفوظاً)
+    for _, btn in ipairs(colorBtnsList) do
+        if not btn:GetAttribute("OriginalPosX") then
+            btn:SetAttribute("OriginalPosX", btn.Position.X.Scale)
+        end
+    end
+
+    -- نوجد index الزر النشط لمعرفة اتجاه الإزاحة
+    local activeIdx = 1
+    for i, btn in ipairs(colorBtnsList) do
+        if btn == ActiveColorBtn then activeIdx = i; break end
+    end
+
+    -- مقدار الإزاحة الأفقية للأزرار المجاورة (كـ Scale)
+    local PUSH_AMOUNT = 0.06
+
+    for i, btn in ipairs(colorBtnsList) do
+        local stroke = btn:FindFirstChildOfClass("UIStroke")
+        local scaleObj = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+        local origX = btn:GetAttribute("OriginalPosX") or btn.Position.X.Scale
+        local origY = btn.Position.Y.Scale
+
+        if btn == ActiveColorBtn then
+            btn:SetAttribute("TargetScale", 1.15)
+            btn:SetAttribute("TargetTrans", 0.8)
+            SafeTween(scaleObj, tiScale, {Scale = 1.15})
+            SafeTween(btn, tiScale, {BackgroundTransparency = 0.8})
+            -- الزر النشط يرجع لموضعه الأصلي
+            SafeTween(btn, tiPos, {Position = UDim2.new(origX, 0, origY, 0)})
+            if stroke then SafeTween(stroke, tiScale, {Transparency = 0}) end
+        else
+            btn:SetAttribute("TargetScale", 0.85)
+            btn:SetAttribute("TargetTrans", 0)
+            SafeTween(scaleObj, tiScale, {Scale = 0.85})
+            SafeTween(btn, tiScale, {BackgroundTransparency = 0})
+            if stroke then SafeTween(stroke, tiScale, {Transparency = 1}) end
+
+            -- نحرك الزر بعيداً عن الزر النشط (يسار أو يمين)
+            local pushDir = (i < activeIdx) and -1 or 1
+            -- فقط الجيران المباشرين يتأثرون بالإزاحة
+            local dist = math.abs(i - activeIdx)
+            local pushX = origX + pushDir * PUSH_AMOUNT * (1 / dist)
+            SafeTween(btn, tiPos, {Position = UDim2.new(pushX, 0, origY, 0)})
+        end
+    end
+end
+
+AddSmoothAnim(SizeSmallBtn, function()
+    if SizeIndex > 7 then
+        SizeIndex = SizeIndex - 1
+        local targetScale = GetDynamicScale()
+        SafeTween(MainUIScale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = targetScale})
+        RefreshSizeButtonsVisuals()
+        if SaveSettings then SaveSettings() end
+    end
+end, false)
+
+AddSmoothAnim(SizeLargeBtn, function()
+    if SizeIndex < MaxSizeIndex then
+
+        SizeIndex = SizeIndex + 1
+        local targetScale = GetDynamicScale()
+        SafeTween(MainUIScale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = targetScale})
+        RefreshSizeButtonsVisuals()
+        if SaveSettings then SaveSettings() end
+    end
+end, false)
+
+RefreshSizeButtonsVisuals()
+
+-- ====================================================================
+
+
+-- ====================================================================
+SaveSettings = function()
+    if writefile then
+        local colorName = "Pink"
+        if ActiveColorBtn == NormalRedBtn then colorName = "NormalRed"
+        elseif ActiveColorBtn == DarkRedBtn then colorName = "DarkRed"
+        elseif ActiveColorBtn == BlueBtn then colorName = "Blue"
+        elseif ActiveColorBtn == LightBlueBtn then colorName = "LightBlue"
+        elseif ActiveColorBtn == PinkBtn then colorName = "Pink"
+        elseif ActiveColorBtn == DarkPinkBtn then colorName = "DarkPink"
+        elseif ActiveColorBtn == LightPinkBtn then colorName = "LightPink"
+        end
+        pcall(function()
+            writefile(SettingsFileName, SizeIndex .. "|" .. CurrentAnimStyle .. "|" .. colorName .. "|" .. SelectedLanguage)
+        end)
+    end
+end
+
+
+if _InitColorName == "NormalRed" then
+    ApplyColorTheme(Color3.fromRGB(255, 0, 0), NormalRedBtn)
+elseif _InitColorName == "DarkRed" then
+    ApplyColorTheme(Color3.fromRGB(130, 0, 0), DarkRedBtn)
+elseif _InitColorName == "Blue" then
+    ApplyColorTheme(Color3.fromRGB(0, 100, 255), BlueBtn)
+elseif _InitColorName == "LightBlue" then
+    ApplyColorTheme(Color3.fromRGB(0, 200, 255), LightBlueBtn)
+elseif _InitColorName == "DarkPink" then
+    ApplyColorTheme(Color3.fromRGB(180, 0, 100), DarkPinkBtn)
+elseif _InitColorName == "LightPink" then
+    ApplyColorTheme(Color3.fromRGB(255, 182, 213), LightPinkBtn)
+else
+
+    ApplyColorTheme(Color3.fromRGB(255, 105, 180), PinkBtn)
+end
+
+AddSmoothAnim(NormalRedBtn, function()
+    ApplyColorTheme(Color3.fromRGB(255, 0, 0), NormalRedBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+AddSmoothAnim(DarkRedBtn, function()
+    ApplyColorTheme(Color3.fromRGB(130, 0, 0), DarkRedBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+AddSmoothAnim(BlueBtn, function()
+    ApplyColorTheme(Color3.fromRGB(0, 100, 255), BlueBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+AddSmoothAnim(LightBlueBtn, function()
+    ApplyColorTheme(Color3.fromRGB(0, 200, 255), LightBlueBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+AddSmoothAnim(PinkBtn, function()
+    ApplyColorTheme(Color3.fromRGB(255, 105, 180), PinkBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+AddSmoothAnim(DarkPinkBtn, function()
+    ApplyColorTheme(Color3.fromRGB(180, 0, 100), DarkPinkBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+AddSmoothAnim(LightPinkBtn, function()
+    ApplyColorTheme(Color3.fromRGB(255, 182, 213), LightPinkBtn)
+    if SaveSettings then SaveSettings() end
+end, true)
+
+local function FormatTime(seconds)
+    local h = math.floor(seconds / 3600)
+    local m = math.floor((seconds % 3600) / 60)
+    local s = seconds % 60
+    return string.format("%02d:%02d:%02d", h, m, s)
+end
+
+local function UpdateNavigationFocus()
+    local tiSmooth = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    
+    TweenService:Create(ExitBtn:FindFirstChildOfClass("UIScale"), tiSmooth, {Scale = 0.94}):Play()
+    SafeTween(ExitBtn, tiSmooth, {TextTransparency = 0.5})
+
+    local buttons = {
+        {btn = NavKeyBtn, page = "Key"},
+        {btn = NavGamesBtn, page = "Games"},
+        {btn = NavSettingsBtn, page = "Settings"}
+    }
+
+    for _, item in pairs(buttons) do
+        local scaleObj = item.btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", item.btn)
+        if CurrentPage == item.page then
+            item.btn:SetAttribute("TargetScale", 1.08)
+            item.btn:SetAttribute("TargetTrans", 1)
+            item.btn:SetAttribute("TextTargetTrans", 0)
+            SafeTween(scaleObj, tiSmooth, {Scale = 1.08})
+            SafeTween(item.btn, tiSmooth, {TextTransparency = 0})
+         else
+            item.btn:SetAttribute("TargetScale", 0.94)
+            item.btn:SetAttribute("TargetTrans", 1)
+            item.btn:SetAttribute("TextTargetTrans", 0.5)
+            SafeTween(scaleObj, tiSmooth, {Scale = 0.94})
+            SafeTween(item.btn, tiSmooth, {TextTransparency = 0.5})
+        end
+    end
+
+    if CurrentPage == "Key" and IsLoggedIn and RequireKeyForEU then
+        TimerLabel.Visible = true
+        SafeTween(TimerLabel, tiSmooth, {TextTransparency = 0})
+    else
+        if TimerLabel.Visible then
+            SafeTween(TimerLabel, tiSmooth, {TextTransparency = 1})
+            task.delay(0.3, function() if CurrentPage ~= "Key" then TimerLabel.Visible = false end end)
+        end
+    end
+end
+
+-- نظام تفاعل الانيميشن المحدث للأزرار والصور لتطابق المؤثرات
+-- [إصلاح]: flag يمنع MouseEnter/MouseLeave/MouseButton1Down من التدخل
+-- بعد ضغط LAUNCH، لأنها تشغّل tweens تلغي توين الإخفاء في OpenDinoPanel
+local _DinoOpening = false
+
+local function AnimateButton(btn, callback)
+    local uiScale = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+
+    local tweenInfoSlow = TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tweenInfoPress = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    local isNavButton = (btn == NavKeyBtn or btn == NavGamesBtn or btn == NavSettingsBtn or btn == ExitBtn)
+    local isLaunchBtn = (btn == LaunchBtn)
+    local isGameButton = (not isLaunchBtn) and btn:IsDescendantOf(GameSelectionFrame)
+    local isRightControl = (btn == ApplyLangBtn or btn == ResetLangBtn)
+    local isKeySystemButton = (btn == SubmitBtn or btn == GetLinkBtn or btn == KeyInput)
+    local isSettingBtn = btn:IsDescendantOf(SettingsScroll)
+
+    local activeScaleTween = nil
+    local activeBtnTween = nil
+
+    local function playTween(targetScale, targetBgTrans, targetTextTrans, speedInfo)
+         if activeScaleTween then activeScaleTween:Cancel() end
+
+        activeScaleTween = TweenService:Create(uiScale, speedInfo, {Scale = targetScale})
+        activeScaleTween:Play()
+
+        -- [إصلاح] استخدام SafeTween يلغي تلقائياً أي توين سابق (حتى لو أُنشئ
+        -- من دالة أخرى مثل OpenDinoPanel/CloseDinoPanel) على نفس الخصائص لهذا الزر
+        activeBtnTween = SafeTween(btn, speedInfo, {
+            BackgroundTransparency = targetBgTrans,
+            TextTransparency = targetTextTrans
+        })
+     end
+
+    btn.MouseEnter:Connect(function()
+        if isGameButton and not IsLoggedIn then return end
+        if isKeySystemButton and IsLoggedIn then return end 
+    
+        local baseScale = btn:GetAttribute("TargetScale") or 1.0
+        local baseBg = btn:GetAttribute("TargetTrans") or 0.92
+        local baseText = btn:GetAttribute("TextTargetTrans") or 0
+
+        if isRightControl then 
+             playTween(baseScale + 0.03, math.min(1, baseBg + 0.05), math.min(1, baseText + 0.1), tweenInfoSlow)
+            return 
+        end
+
+        if isLaunchBtn then
+            if _DinoOpening then return end
+            if btn.BackgroundTransparency < 1 then
+                playTween(baseScale + 0.04, 0.8, 0, tweenInfoSlow)
+            end
+            return
+        end
+
+        if isNavButton then
+            playTween(baseScale + 0.05, 1, math.max(0, baseText - 0.2), tweenInfoSlow)
+        elseif isSettingBtn then
+            if activeScaleTween then activeScaleTween:Cancel() end
+            activeScaleTween = TweenService:Create(uiScale, tweenInfoSlow, {Scale = baseScale + 0.02})
+            activeScaleTween:Play()
+            if btn.TextTransparency > 0 then
+                if activeBtnTween then activeBtnTween:Cancel() end
+                activeBtnTween = TweenService:Create(btn, tweenInfoSlow, {TextTransparency = math.max(0, baseText - 0.2)})
+                activeBtnTween:Play()
+            end
+        elseif isGameButton then
+            -- تأثير التصويب (Hover) الموحد للصور: تكبير وإضاءة
+            local actualBase = (SelectedGameCard == btn) and 1.13 or 1.0
+            if activeScaleTween then activeScaleTween:Cancel() end
+            activeScaleTween = TweenService:Create(uiScale, tweenInfoSlow, {Scale = actualBase + 0.04})
+            activeScaleTween:Play()
+            
+            if activeBtnTween then activeBtnTween:Cancel() end
+            activeBtnTween = TweenService:Create(btn, tweenInfoSlow, {ImageTransparency = math.max(0, btn.ImageTransparency - 0.15)})
+            activeBtnTween:Play()
+        else
+            if btn.Visible and btn.TextTransparency < 1 then
+                 playTween(baseScale + 0.04, math.min(1, baseBg + 0.05), math.min(1, baseText + 0.1), tweenInfoSlow)
+            end
+        end
+    end)
+
+    btn.MouseLeave:Connect(function()
+        if isGameButton and not IsLoggedIn then return end
+        if isKeySystemButton and IsLoggedIn then return end
+  
+        local defScale = btn:GetAttribute("TargetScale") or 1.0
+        local defBg = btn:GetAttribute("TargetTrans") or 0.92
+        local defText = btn:GetAttribute("TextTargetTrans") or 0
+
+        if isRightControl then 
+            playTween(defScale, defBg, defText, tweenInfoSlow)
+            return 
+        end
+
+        if isLaunchBtn then
+            if _DinoOpening then return end
+            -- [إصلاح]: لا نُعيد الزر ظاهراً إذا كان توين الإخفاء قد بدأ فعلاً
+            -- (قد يكون BackgroundTransparency لم يصل 1 بعد لكن الزر في طور الاختفاء)
+            if btn.BackgroundTransparency >= 1 then return end
+            playTween(defScale, 0.9, 0, tweenInfoSlow)
+            return
+        end
+
+        if isNavButton then
+            playTween(defScale, 1, defText, tweenInfoSlow)
+        elseif isSettingBtn then
+            if activeScaleTween then activeScaleTween:Cancel() end
+            activeScaleTween = TweenService:Create(uiScale, tweenInfoSlow, {Scale = defScale})
+            activeScaleTween:Play()
+            if activeBtnTween then activeBtnTween:Cancel() end
+            activeBtnTween = TweenService:Create(btn, tweenInfoSlow, {TextTransparency = defText})
+            activeBtnTween:Play()
+        elseif isGameButton then
+            -- إرجاع الصورة للحجم الطبيعي والشفافية الصحيحة المحددة
+            local actualDef = (SelectedGameCard == btn) and 1.13 or 1.0
+            local targetTrans = 0
+            if not IsLoggedIn then
+                targetTrans = 0.5
+            elseif SelectedGameCard then
+                targetTrans = (SelectedGameCard == btn) and 0 or 0.60
+            end
+            
+            if activeScaleTween then activeScaleTween:Cancel() end
+            activeScaleTween = TweenService:Create(uiScale, tweenInfoSlow, {Scale = actualDef})
+            activeScaleTween:Play()
+            
+            if activeBtnTween then activeBtnTween:Cancel() end
+            activeBtnTween = TweenService:Create(btn, tweenInfoSlow, {ImageTransparency = targetTrans})
+            activeBtnTween:Play()
+        else
+            if IsLoggedIn and isKeySystemButton then
+                playTween(defScale, 0.98, 0.7, tweenInfoSlow)
+            else
+                playTween(defScale, defBg, defText, tweenInfoSlow)
+            end
+        end
+    end)
+
+    btn.MouseButton1Down:Connect(function()
+        if isGameButton and not IsLoggedIn then return end
+        if isKeySystemButton and IsLoggedIn then return end
+        
+        local pressScale = (btn:GetAttribute("TargetScale") or 1.0) - 0.06
+        
+        if isSettingBtn then
+            if activeScaleTween then activeScaleTween:Cancel() end
+            activeScaleTween = TweenService:Create(uiScale, tweenInfoPress, {Scale = pressScale})
+            activeScaleTween:Play()
+        elseif isGameButton then
+            -- تأثير الضغط (Press) الموحد للصور: انكماش خفيف للداخل لتبدو حية
+            local actualBase = (SelectedGameCard == btn) and 1.13 or 1.0
+            if activeScaleTween then activeScaleTween:Cancel() end
+            activeScaleTween = TweenService:Create(uiScale, tweenInfoPress, {Scale = actualBase - 0.06})
+            activeScaleTween:Play()
+        elseif isLaunchBtn then
+            if _DinoOpening then return end
+            if btn.BackgroundTransparency < 1 then
+                playTween(pressScale, 0.8, 0, tweenInfoPress)
+            end
+        elseif btn.Visible and btn.TextTransparency < 1 then
+            local bgTrans = isNavButton and 1 or math.min(1, (btn:GetAttribute("TargetTrans") or 0.92) + 0.06)
+            local targetTrans = isNavButton and 0.1 or math.min(1, (btn:GetAttribute("TextTargetTrans") or 0) + 0.15)
+            playTween(pressScale, bgTrans, targetTrans, tweenInfoPress)
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        if isGameButton and not IsLoggedIn then return end
+        if isKeySystemButton and IsLoggedIn then return end
+        
+        if isGameButton then
+            local imgScaleObj = btn:FindFirstChildOfClass("UIScale")
+            if imgScaleObj then
+                 local returnScale = (SelectedGameCard == btn) and 1.13 or 1.0
+                if activeScaleTween then activeScaleTween:Cancel() end
+                activeScaleTween = TweenService:Create(imgScaleObj, tweenInfoSlow, {Scale = returnScale})
+                activeScaleTween:Play()
+            end
+            PlayClickSound()
+            if callback then callback() end
+            return
+        end
+
+        if isLaunchBtn then
+            if _DinoOpening then return end
+            if btn.BackgroundTransparency < 1 then
+                -- يرجع يكبر لحجم الهوفر (zoom in) بأنيميشن Back ثم يفتح البانيل
+                local hoverScale = (btn:GetAttribute("TargetScale") or 1.0) + 0.04
+                if activeScaleTween then activeScaleTween:Cancel() end
+                activeScaleTween = TweenService:Create(uiScale,
+                    TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                    {Scale = hoverScale}
+                )
+                activeScaleTween:Play()
+                PlayClickSound()
+                task.delay(0.18, function()
+                    if callback then callback() end
+                end)
+            end
+            return
+        end
+        
+        if btn.Visible and btn.TextTransparency < 1 and callback then
+             PlayClickSound()
+             callback()
+        end
+    end)
+end
+
+local EndTime = 0
+
+local function StartTimer(endTime)
+    if not RequireKeyForEU then return end 
+
+    if CurrentPage == "Key" then
+        TimerLabel.Visible = true
+        SafeTween(TimerLabel, TweenInfo.new(0.5), {TextTransparency = 0})
+    end
+    task.spawn(function()
+        while task.wait(1) do
+             local remaining = endTime - os.time()
+             if remaining <= 0 then
+                  local t = Translations[SelectedLanguage] or Translations.English
+                TimerLabel.Text = t.KeyExpired
+                IsLoggedIn = false
+                KeyInput.TextEditable = true
+                 if isfile(FileName) then delfile(FileName) end
+                   break
+            end
+            TimerLabel.Text = FormatTime(remaining)
+        end
+    end)
+end
+
+if RequireKeyForEU then
+    if isfile(FileName) then
+        local savedTime = tonumber(readfile(FileName))
+        if savedTime and savedTime > os.time() then
+            IsLoggedIn = true
+            EndTime = savedTime
+            KeyInput.TextEditable = false
+        else
+            delfile(FileName)
+        end
+    end
+else
+    IsLoggedIn = true 
+    EndTime = math.huge 
+end
+
+local function FadeOutAndExecute(url)
+    MuteManager:FadeInSounds(1) 
+    
+    if IntroMusic and IntroMusic.Parent then
+        local musicFadeOut = TweenService:Create(IntroMusic, TweenInfo.new(1, Enum.EasingStyle.Linear), {Volume = 0})
+         musicFadeOut:Play()
+        task.delay(1, function()
+            if IntroMusic and IntroMusic.Parent then
+                IntroMusic:Stop()
+                IntroMusic:Destroy()
+            end
+        end)
+    end
+    
+    MainFrame.ClipsDescendants = true 
+    local ti = TweenInfo.new(0.6, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    
+    SafeTween(MainFrame, ti, {
+        Size = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    })
+    
+    for _, element in pairs(ContentFrame:GetDescendants()) do
+        if element:IsA("TextLabel") or element:IsA("TextBox") or element:IsA("TextButton") then
+             SafeTween(element, ti, {TextTransparency = 1, BackgroundTransparency = 1})
+         elseif element:IsA("ImageLabel") or element:IsA("ImageButton") then
+            SafeTween(element, ti, {ImageTransparency = 1})
+        elseif element:IsA("Frame") then
+            SafeTween(element, ti, {BackgroundTransparency = 1})
+        end
+    end
+    SafeTween(GameDetailPanel, ti, {BackgroundTransparency = 1})
+    
+    SafeTween(BackgroundOverlay, ti, {BackgroundTransparency = 1})
+    task.wait(0.6)
+    ScreenGui:Destroy()
+    if url then loadstring(game:HttpGet(url))() end
+end
+
+local function CreateGameCard(name, url, assetId, order, detailId)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 65, 0, 49)
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.LayoutOrder = order
+    container.Parent = GameScrollFrame
+    container.ZIndex = 12
+
+    local imgBtn = Instance.new("ImageButton")
+    imgBtn.Parent = container
+    imgBtn.Size = UDim2.new(1, 0, 1, 0)
+    imgBtn.Position = UDim2.new(0, 0, 0, 0)
+    imgBtn.BackgroundTransparency = 1
+    imgBtn.Image = "rbxthumb://type=Asset&id=" .. assetId .. "&w=150&h=150"
+    imgBtn.ImageTransparency = 1
+    imgBtn.ScaleType = Enum.ScaleType.Stretch
+    imgBtn.ZIndex = 13
+    Instance.new("UICorner", imgBtn).CornerRadius = UDim.new(0, 6)
+    
+    local imgScale = Instance.new("UIScale", imgBtn)
+    imgScale.Scale = 1
+
+    imgBtn:SetAttribute("TargetTrans", 1)
+
+    -- النص ابن للصورة نفسها (imgBtn) وليس للـ container، فيتحرك معها تلقائياً
+    -- في أي تحريك (مثل نظام التبعيد عند الضغط) لأن موضعه نسبي لأبيه الصورة
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = imgBtn
+    lbl.Size = UDim2.new(1, -6, 0, 14)
+    lbl.Position = UDim2.new(0, 3, 0, 2)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham
+    lbl.Text = name
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextSize = 7
+    lbl.TextTransparency = 1
+    lbl.TextWrapped = false
+    lbl.TextScaled = false
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextYAlignment = Enum.TextYAlignment.Top
+    lbl.ZIndex = 15
+
+    -- تسجيل صورة هذا الكرت في القائمة المركزية لتحميلها ضمن شاشة
+    -- التحميل السوداء عند بدء التشغيل. أي كرت يُنشأ مستقبلاً (حتى لو
+    -- أُضيف بعد هذا التحديث) سينضم تلقائياً لأن RegisterPreloadAsset
+    -- تُستدعى هنا لكل كرت يُنشأ، بلا حاجة لتعديل كود الـ Intro.
+    RegisterPreloadAsset(imgBtn)
+
+    -- [إصلاح]: الصورة الكبيرة في لوحة التفاصيل (DetailImage، مقاس 420x420)
+    -- لم تكن تُحمَّل إطلاقاً حتى أول ضغطة فعلية على الكرت، فكانت تظهر
+    -- بشكل متقطع (لأنها تُطلب من سيرفرات Roblox في نفس لحظة الضغطة) ولا
+    -- تصبح سلسة إلا في الضغطة الثانية بعد أن تُخزَّن مؤقتاً. لحل هذا
+    -- نخلق ImageLabel وهمياً (غير مرئي ومنفصل عن الشجرة الظاهرة) بنفس
+    -- معرّف الصورة الكبيرة ونسجّله في نفس قائمة التحميل المركزية، فيتم
+    -- تحميل وتخزين هذه الصورة أيضاً أثناء شاشة التحميل السوداء قبل أن
+    -- يضغط المستخدم على أي كرت إطلاقاً.
+    if detailId and detailId ~= "" then
+        local detailPreloadImg = Instance.new("ImageLabel")
+        detailPreloadImg.Name = "DetailPreload_" .. name
+        detailPreloadImg.Visible = false
+        detailPreloadImg.Size = UDim2.new(0, 1, 0, 1)
+        detailPreloadImg.BackgroundTransparency = 1
+        detailPreloadImg.Image = "rbxthumb://type=Asset&id=" .. detailId .. "&w=420&h=420"
+        detailPreloadImg.Parent = CoreGui
+        RegisterPreloadAsset(detailPreloadImg)
+    end
+
+    -- ملاحظة: التحميل يتم مركزياً عبر _PendingPreloadAssets في شاشة التحميل السوداء.
+-- لو أُنشئ الكرت بعد اختفاء الشاشة، ContentProvider يخزّن الصور تلقائياً عند أول عرض.
+AnimateButton(imgBtn, function()
+        if IsLoggedIn then
+            SelectGame(imgBtn, name, url, assetId, detailId)
+        end
+    end)
+
+    table.insert(GameImagesList, imgBtn)
+    table.insert(GameLabelsList, lbl)
+end
+
+-- ====================================================================
+-- DinoLaunchPanel: صفحة تأكيد التشغيل الخاصة بـ Dinosaur Simulator
+-- ====================================================================
+
+local DinoLaunchPanel = Instance.new("Frame")
+DinoLaunchPanel.Name = "DinoLaunchPanel"
+DinoLaunchPanel.Parent = ContentFrame
+DinoLaunchPanel.Size = UDim2.new(1, 0, 1, 0)
+DinoLaunchPanel.Position = UDim2.new(0, 0, 0, 0)
+DinoLaunchPanel.BackgroundTransparency = 1
+DinoLaunchPanel.Visible = false
+DinoLaunchPanel.ZIndex = 11
+DinoLaunchPanel.ClipsDescendants = false
+
+-- خلفية الصفحة: نفس مساحة وموضع منطقة محتوى صفحة الألعاب تماماً
+-- (تبدأ تحت العنوان وتنتهي قبل شريط التنقل السفلي، بلا تغطية لأي عنصر آخر)
+local DinoPanelBg = Instance.new("ScrollingFrame")
+DinoPanelBg.Name = "DinoPanelBg"
+DinoPanelBg.Parent = DinoLaunchPanel
+DinoPanelBg.Size = UDim2.new(0.94, 0, 0, 200)
+DinoPanelBg.Position = UDim2.new(0.03, 0, 0, 35)
+DinoPanelBg.BackgroundColor3 = CurrentBoxBgColor
+DinoPanelBg.BackgroundTransparency = 1
+DinoPanelBg.ZIndex = 11
+DinoPanelBg.BorderSizePixel = 0
+DinoPanelBg.ScrollBarThickness = 4
+DinoPanelBg.ScrollBarImageColor3 = TargetGlowColor
+DinoPanelBg.ScrollBarImageTransparency = 1
+DinoPanelBg.CanvasSize = UDim2.new(0, 0, 0, 236)
+DinoPanelBg.ScrollingDirection = Enum.ScrollingDirection.Y
+Instance.new("UICorner", DinoPanelBg).CornerRadius = UDim.new(0, 10)
+table.insert(AllUIBoxes, DinoPanelBg)
+
+-- زر الرجوع (Back) — ثابت في الزاوية العلوية اليمنى، تابع للصفحة وليس للصندوق القابل للتمرير
+local DinoCloseBtn = Instance.new("TextButton")
+DinoCloseBtn.Name = "DinoCloseBtn"
+DinoCloseBtn.Parent = DinoLaunchPanel
+DinoCloseBtn.Size = UDim2.new(0, 58, 0, 22)
+DinoCloseBtn.Position = UDim2.new(0.97, -66, 0, 41)
+DinoCloseBtn.BackgroundColor3 = TargetGlowColor
+DinoCloseBtn.BackgroundTransparency = 1
+DinoCloseBtn.Font = Enum.Font.Gotham
+DinoCloseBtn.Text = "‹  Back"
+DinoCloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DinoCloseBtn.TextSize = 10
+DinoCloseBtn.TextTransparency = 1
+DinoCloseBtn.ZIndex = 13
+DinoCloseBtn.BorderSizePixel = 0
+DinoCloseBtn.AutoButtonColor = false
+Instance.new("UICorner", DinoCloseBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UIScale", DinoCloseBtn)
+table.insert(AllUIBoxes, DinoCloseBtn)
+
+-- صورة اللعبة (Asset ID: 133578398288699) — في المنتصف بدون خلفية صندوق
+local DinoPanelImage = Instance.new("ImageLabel")
+DinoPanelImage.Name = "DinoPanelImage"
+DinoPanelImage.Parent = DinoPanelBg
+DinoPanelImage.AnchorPoint = Vector2.new(0, 0)
+DinoPanelImage.Size = UDim2.new(0, 220, 0, 123)
+DinoPanelImage.Position = UDim2.new(0, 8, 0, 8)
+DinoPanelImage.BackgroundTransparency = 1
+DinoPanelImage.Image = "rbxthumb://type=Asset&id=133578398288699&w=420&h=420"
+DinoPanelImage.ImageTransparency = 1
+DinoPanelImage.ScaleType = Enum.ScaleType.Stretch
+DinoPanelImage.ZIndex = 12
+Instance.new("UICorner", DinoPanelImage).CornerRadius = UDim.new(0, 7)
+
+-- نص "Asset ID" تحت الصورة (في المنتصف)
+local DinoAssetLabel = Instance.new("TextLabel")
+DinoAssetLabel.Name = "DinoAssetLabel"
+DinoAssetLabel.Parent = DinoPanelBg
+DinoAssetLabel.Size = UDim2.new(0, 0, 0, 0)
+DinoAssetLabel.BackgroundTransparency = 1
+DinoAssetLabel.Text = ""
+DinoAssetLabel.TextTransparency = 1
+DinoAssetLabel.ZIndex = 12
+DinoAssetLabel.Visible = false
+
+-- زر التشغيل الرئيسي (أسفل الصورة على اليمين)
+local DinoRunBtn = Instance.new("TextButton")
+DinoRunBtn.Name = "DinoRunBtn"
+DinoRunBtn.Parent = DinoPanelBg
+DinoRunBtn.AnchorPoint = Vector2.new(1, 0)
+DinoRunBtn.Size = UDim2.new(0, 110, 0, 28)
+DinoRunBtn.Position = UDim2.new(1, -16, 0, 134)
+DinoRunBtn.BackgroundColor3 = TargetGlowColor
+DinoRunBtn.BackgroundTransparency = 1
+DinoRunBtn.Font = Enum.Font.Gotham
+DinoRunBtn.Text = "▶  RUN"
+DinoRunBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DinoRunBtn.TextSize = 11
+DinoRunBtn.TextTransparency = 1
+DinoRunBtn.ZIndex = 12
+DinoRunBtn.BorderSizePixel = 0
+DinoRunBtn.AutoButtonColor = false
+Instance.new("UICorner", DinoRunBtn).CornerRadius = UDim.new(0, 7)
+Instance.new("UIScale", DinoRunBtn)
+
+-- خط فاصل
+local DinoSeparator = Instance.new("Frame")
+DinoSeparator.Name = "DinoSeparator"
+DinoSeparator.Parent = DinoPanelBg
+DinoSeparator.Size = UDim2.new(0.92, 0, 0, 1)
+DinoSeparator.Position = UDim2.new(0.04, 0, 0, 164)
+DinoSeparator.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+DinoSeparator.BackgroundTransparency = 1
+DinoSeparator.BorderSizePixel = 0
+DinoSeparator.ZIndex = 12
+
+-- منطقة النص القابل للتعديل (تحت الخط الفاصل)
+local DinoTextScroll = Instance.new("ScrollingFrame")
+DinoTextScroll.Name = "DinoTextScroll"
+DinoTextScroll.Parent = DinoPanelBg
+DinoTextScroll.Size = UDim2.new(0.92, 0, 0, 62)
+DinoTextScroll.Position = UDim2.new(0.04, 0, 0, 174)
+DinoTextScroll.BackgroundTransparency = 1
+DinoTextScroll.BorderSizePixel = 0
+DinoTextScroll.ScrollBarThickness = 3
+DinoTextScroll.ScrollBarImageColor3 = TargetGlowColor
+DinoTextScroll.ScrollBarImageTransparency = 0.7
+DinoTextScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+DinoTextScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+DinoTextScroll.ZIndex = 12
+
+local DinoDescLabel = Instance.new("TextLabel")
+DinoDescLabel.Name = "DinoDescLabel"
+DinoDescLabel.Parent = DinoTextScroll
+DinoDescLabel.Size = UDim2.new(1, -6, 0, 0)
+DinoDescLabel.Position = UDim2.new(0, 3, 0, 0)
+DinoDescLabel.BackgroundTransparency = 1
+DinoDescLabel.Font = Enum.Font.Gotham
+DinoDescLabel.Text = "99999999999999999999999"
+DinoDescLabel.TextColor3 = Color3.fromRGB(210, 210, 210)
+DinoDescLabel.TextSize = 9
+DinoDescLabel.TextTransparency = 1
+DinoDescLabel.TextWrapped = true
+DinoDescLabel.TextXAlignment = Enum.TextXAlignment.Left
+DinoDescLabel.TextYAlignment = Enum.TextYAlignment.Top
+DinoDescLabel.ZIndex = 12
+DinoDescLabel.AutomaticSize = Enum.AutomaticSize.Y
+
+-- تحديث حجم الـ Canvas تلقائياً بعد تحميل النص
+task.spawn(function()
+    task.wait(0.1)
+    DinoTextScroll.CanvasSize = UDim2.new(0, 0, 0, DinoDescLabel.AbsoluteSize.Y + 4)
+    DinoDescLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        DinoTextScroll.CanvasSize = UDim2.new(0, 0, 0, DinoDescLabel.AbsoluteSize.Y + 4)
+    end)
+end)
+
+-- ====================================================================
+-- دوال فتح وإغلاق DinoLaunchPanel
+-- ====================================================================
+
+local _DinoUiScaleOriginal = nil
+
+-- بيانات صفحة التأكيد لكل لعبة تحتاجها (الصورة والنص تحت الفاصل)
+-- لإضافة لعبة جديدة لهذه الصفحة: أضف سطر هنا بنفس الشكل
+local _DinoPanelTitle = "DINOSAUR SIMULATOR"
+local _DinoPanelImageId = "133578398288699"
+local _DinoPanelDescText = "99999999999999999999999"
+
+local DinoConfirmPanelData = {
+    ["Dinosaur Simulator"] = {
+        Title = "DINOSAUR SIMULATOR",
+        ImageId = "133578398288699",
+        DescText = "This is also the best Dinosaur Simulator script. The features that make it the best include an insane farm: a smart meteor farm that flies directly to the meteor without being stopped by anything and collects it without any effort from you. It also features a diamond farm where you can collect 1,000 S-DNA per minute—which is a crazy amount. It includes automatic conversion of diamond dinosaurs into S-DNA and many other options. It contains an anti-ban, but do not use this script anywhere except in Dinosaur Simulator",
+    },
+    ["Kaiju Alpha"] = {
+        Title = "KAIJU ALPHA",
+        ImageId = "123463009554971",
+        DescText = "It contains the best farming bot. The idea is to simulate a real player so that even the admins won't suspect you. Do not use this script anywhere except in Kaiju Alpha to avoid getting banned",
+    },
+    ["Combat Warriors"] = {
+        Title = "COMBAT WARRIORS",
+        ImageId = "110724450653185",
+        DescText = "It features a smart farm bot that jumps over walls like a natural player, and includes a smart aimbot—the best aimbot in gaming history—along with many other options. It has an anti-ban feature, but please do not use the script in any game other than Combat Warriors",
+        Disabled = true,
+        DisabledColor = Color3.fromRGB(255, 60, 60),
+        DisabledText = "⚠ This script has stopped due to Combat Warriors updates that broke the script. It will likely not be available for use until after a long time — possibly up to a month.",
+    },
+    ["Kaiju Universe"] = {
+        Title = "KAIJU UNIVERSE",
+        ImageId = "99301557779674",
+        DescText = "It also includes an intelligent farm bot alongside a speed multiplier system. To avoid issues, strictly use this script only in Kaiju Universe",
+    },
+    ["Kaiju Multiverse"] = {
+        Title = "KAIJU MULTIVERSE",
+        ImageId = "116813748034406",
+        DescText = "It also includes an intelligent farm bot alongside a speed multiplier system. To avoid issues, strictly use this script only in Kaiju Multiverse",
+    },
+}
+
+-- [إصلاح]: نفس مشكلة DetailImage تماماً تتكرر هنا — DinoPanelImage.Image
+-- يتغيّر فقط عند فتح اللوحة فعلياً (OpenDinoPanel)، فتظهر الصورة بشكل
+-- متقطع أول مرة فقط. نسجّل كل صور DinoConfirmPanelData في نفس قائمة
+-- التحميل المركزية عبر ImageLabel وهمي مخفي، فتُحمَّل أثناء شاشة
+-- التحميل السوداء قبل أن يفتح المستخدم أي لوحة.
+for gameName, panelData in pairs(DinoConfirmPanelData) do
+    if panelData.ImageId and panelData.ImageId ~= "" then
+        local dinoPreloadImg = Instance.new("ImageLabel")
+        dinoPreloadImg.Name = "DinoPanelPreload_" .. gameName
+        dinoPreloadImg.Visible = false
+        dinoPreloadImg.Size = UDim2.new(0, 1, 0, 1)
+        dinoPreloadImg.BackgroundTransparency = 1
+        dinoPreloadImg.Image = "rbxthumb://type=Asset&id=" .. panelData.ImageId .. "&w=420&h=420"
+        dinoPreloadImg.Parent = CoreGui
+        RegisterPreloadAsset(dinoPreloadImg)
+    end
+end
+
+local function OpenDinoPanel()
+    -- [إصلاح]: نضع _DinoOpening = true دائماً بغض النظر عن نوع الإدخال (PC أو Touch)
+    -- لمنع أي توين hover/leave من التدخل أثناء توين الإخفاء
+    _DinoOpening = true
+
+    -- [إصلاح]: كانت EasingDirection.In تجعل التلاشي يبدو بطيئاً جداً معظم الوقت
+    -- ثم يقفز بسرعة في آخر جزء من الزمن (يظهر فجأة). تم تغييرها لـ Out
+    -- لتطابق نفس أسلوب التلاشي السلس المستخدم في CloseDinoPanel وباقي الصفحة
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    -- [إصلاح]: إلغاء أي توين hover/press نشط على LaunchBtn قبل الإخفاء
+    -- لأن AnimateButton يشغّل tweens مستقلة تتعارض مع SafeTween أدناه وتمنع الإخفاء السلس
+    do
+        local existing = _ActiveTweensByInstance[LaunchBtn]
+        if existing then
+            for propName, t in pairs(existing) do
+                if t then t:Cancel() end
+                existing[propName] = nil
+            end
+        end
+        local launchScale = LaunchBtn:FindFirstChildOfClass("UIScale")
+        if launchScale then
+            local existingScale = _ActiveTweensByInstance[launchScale]
+            if existingScale then
+                for propName, t in pairs(existingScale) do
+                    if t then t:Cancel() end
+                    existingScale[propName] = nil
+                end
+            end
+        end
+    end
+
+    -- إخفاء صفحة الألعاب أولاً بنفس أسلوب FadeOutPage("Games")، ثم تبديل الصفحة فعلياً
+    local tiOut = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    SafeTween(GamesContentBox, tiOut, {BackgroundTransparency = 1})
+    SafeTween(GameDetailPanel, tiOut, {BackgroundTransparency = 1})
+    SafeTween(DetailImage, tiOut, {ImageTransparency = 1})
+    SafeTween(DetailNameLabel, tiOut, {TextTransparency = 1})
+    SafeTween(LaunchBtn,       tiOut, {BackgroundTransparency = 1, TextTransparency = 1})
+    SafeTween(AntiBanLabel, tiOut, {TextTransparency = 1})
+    SafeTween(GameScrollFrame, tiOut, {ScrollBarImageTransparency = 1})
+    for _, img in pairs(GameImagesList) do
+        SafeTween(img, tiOut, {ImageTransparency = 1})
+    end
+    for _, lbl in pairs(GameLabelsList) do
+        SafeTween(lbl, tiOut, {TextTransparency = 1})
+    end
+    SafeTween(WarningLabel, tiOut, {TextTransparency = 1})
+
+    task.wait(0.25)
+    GameSelectionFrame.Visible = false
+    _DinoOpening = false  -- انتهى الإخفاء، نعيد تفعيل hover/press بشكل طبيعي
+
+    -- إظهار صفحة Dino كصفحة مستقلة (نفس منطقة المحتوى، بلا تغطية للعنوان أو شريط التنقل)
+    DinoLaunchPanel.Visible = true
+    PlayPageChangeSound()
+    DinoRunBtn.BackgroundColor3 = TargetGlowColor
+    DinoCloseBtn.BackgroundColor3 = TargetGlowColor
+    DinoTextScroll.ScrollBarImageColor3 = TargetGlowColor
+    DinoPanelBg.ScrollBarImageColor3 = TargetGlowColor
+
+    Title.Text = _DinoPanelTitle or "DINOSAUR SIMULATOR"
+    DinoPanelImage.Image = "rbxthumb://type=Asset&id=" .. (_DinoPanelImageId or "133578398288699") .. "&w=420&h=420"
+
+    -- [Combat Warriors Disabled]: إذا اللعبة معطّلة، اعرض نص التحذير باللون الأحمر
+    local _activeGameData = SelectedGameName and DinoConfirmPanelData[SelectedGameName]
+    if _activeGameData and _activeGameData.Disabled then
+        DinoDescLabel.Text = _activeGameData.DisabledText or _DinoPanelDescText or ""
+        DinoDescLabel.TextColor3 = _activeGameData.DisabledColor or Color3.fromRGB(255, 60, 60)
+    else
+        DinoDescLabel.Text = _DinoPanelDescText or "99999999999999999999999"
+        DinoDescLabel.TextColor3 = Color3.fromRGB(210, 210, 210)
+    end
+
+    SafeTween(DinoPanelBg, ti, {BackgroundTransparency = 0.90})
+    SafeTween(DinoCloseBtn,    ti, {BackgroundTransparency = 0.9, TextTransparency = 0})
+    SafeTween(DinoPanelImage,  ti, {ImageTransparency = 0})
+    SafeTween(DinoAssetLabel,  ti, {TextTransparency = 0.3})
+    -- [Combat Warriors Disabled]: الزر يتفاعل ويكبر طبيعي، بس النص شفافيته 0.70
+    if _activeGameData and _activeGameData.Disabled then
+        SafeTween(DinoRunBtn, ti, {BackgroundTransparency = 0.9, TextTransparency = 0.70})
+    else
+        SafeTween(DinoRunBtn, ti, {BackgroundTransparency = 0.9, TextTransparency = 0})
+    end
+    SafeTween(DinoSeparator,   ti, {BackgroundTransparency = 0.85})
+    SafeTween(DinoDescLabel,   ti, {TextTransparency = 0})
+    SafeTween(DinoTextScroll,  ti, {ScrollBarImageTransparency = 0.7})
+    SafeTween(DinoPanelBg,     ti, {ScrollBarImageTransparency = 0.95})
+end
+
+local function CloseDinoPanel()
+    local tiFade = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    -- Fade Out الـ Title مع باقي عناصر البانيل
+    SafeTween(Title,          tiFade, {TextTransparency = 1})
+    SafeTween(DinoPanelBg,    tiFade, {BackgroundTransparency = 1})
+    SafeTween(DinoCloseBtn,   tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+    SafeTween(DinoPanelImage, tiFade, {ImageTransparency = 1})
+    SafeTween(DinoAssetLabel, tiFade, {TextTransparency = 1})
+    SafeTween(DinoRunBtn,     tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+    SafeTween(DinoSeparator,  tiFade, {BackgroundTransparency = 1})
+    SafeTween(DinoDescLabel,  tiFade, {TextTransparency = 1})
+    SafeTween(DinoTextScroll, tiFade, {ScrollBarImageTransparency = 1})
+    SafeTween(DinoPanelBg,    tiFade, {ScrollBarImageTransparency = 1})
+
+    task.wait(0.25)
+    DinoLaunchPanel.Visible = false
+
+    -- إعادة إظهار صفحة الألعاب بنفس أسلوب FadeInPage("Games")
+    GameSelectionFrame.Visible = true
+    local t = Translations[SelectedLanguage] or Translations.English
+    -- تغيير النص بعد اختفاء الـ Title تماماً، ثم Fade In
+    Title.Text = IsLoggedIn and t.SelectGame or t.RequireKeyFirst
+    SafeTween(Title, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {TextTransparency = 0})
+
+    local tiBack = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    SafeTween(GamesContentBox, tiBack, {BackgroundTransparency = 0.90})
+    SafeTween(GameDetailPanel, tiBack, {BackgroundTransparency = 0.90})
+    SafeTween(GameScrollFrame, tiBack, {ScrollBarImageTransparency = 0.95})
+    if SelectedGameCard and DetailImage.Image ~= "" then
+        SafeTween(DetailImage, tiBack, {ImageTransparency = 0})
+        SafeTween(DetailNameLabel, tiBack, {TextTransparency = 0})
+        SafeTween(AntiBanLabel, tiBack, {TextTransparency = 0})
+        LaunchBtn.BackgroundColor3 = TargetGlowColor
+        SafeTween(LaunchBtn, tiBack, {BackgroundTransparency = 0.9, TextTransparency = 0})
+    end
+    for _, img in pairs(GameImagesList) do
+        local isSel = (SelectedGameCard == img)
+        SafeTween(img, tiBack, {ImageTransparency = isSel and 0 or 0.60})
+    end
+    for _, lbl in pairs(GameLabelsList) do
+        SafeTween(lbl, tiBack, {TextTransparency = 0})
+    end
+    SafeTween(WarningLabel, tiBack, {TextTransparency = 0})
+end
+
+-- ====================================================================
+-- تفاعلات DinoCloseBtn و DinoRunBtn
+-- ====================================================================
+
+local function SetupDinoBtn(btn, onClickCb)
+    local scale = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+    local tiHover = TweenInfo.new(0.14, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tiPress = TweenInfo.new(0.1,  Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    btn.MouseEnter:Connect(function()
+        SafeTween(scale, tiHover, {Scale = 1.06})
+        if btn.BackgroundTransparency < 1 then
+            SafeTween(btn, tiHover, {BackgroundTransparency = btn.BackgroundTransparency - 0.07})
+        end
+    end)
+
+    btn.MouseLeave:Connect(function()
+        SafeTween(scale, tiHover, {Scale = 1.0})
+        if btn == DinoRunBtn then
+            SafeTween(btn, tiHover, {BackgroundTransparency = 0.9})
+        elseif btn == DinoCloseBtn then
+            SafeTween(btn, tiHover, {BackgroundTransparency = 0.9})
+        end
+    end)
+
+    btn.MouseButton1Down:Connect(function()
+        SafeTween(scale, tiPress, {Scale = 0.93})
+        if btn.BackgroundTransparency < 1 then
+            SafeTween(btn, tiPress, {BackgroundTransparency = math.min(1, btn.BackgroundTransparency + 0.12)})
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        PlayClickSound()
+        SafeTween(scale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1.0})
+        if onClickCb then onClickCb() end
+    end)
+end
+
+-- زر Back: أنيميشن Scale فقط (hover/press) بدون تعارض مع توين الـ fade
+do
+    local closeBtnScale = DinoCloseBtn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", DinoCloseBtn)
+    local tiHover = TweenInfo.new(0.14, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tiPress = TweenInfo.new(0.1,  Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local tiBack  = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+    DinoCloseBtn.MouseEnter:Connect(function()
+        if DinoCloseBtn.BackgroundTransparency >= 1 then return end
+        TweenService:Create(closeBtnScale, tiHover, {Scale = 1.06}):Play()
+        SafeTween(DinoCloseBtn, tiHover, {BackgroundTransparency = 0.83})
+    end)
+
+    DinoCloseBtn.MouseLeave:Connect(function()
+        if DinoCloseBtn.BackgroundTransparency >= 1 then return end
+        TweenService:Create(closeBtnScale, tiHover, {Scale = 1.0}):Play()
+        SafeTween(DinoCloseBtn, tiHover, {BackgroundTransparency = 0.9})
+    end)
+
+    DinoCloseBtn.MouseButton1Down:Connect(function()
+        if DinoCloseBtn.BackgroundTransparency >= 1 then return end
+        TweenService:Create(closeBtnScale, tiPress, {Scale = 0.93}):Play()
+        SafeTween(DinoCloseBtn, tiPress, {BackgroundTransparency = 0.97})
+    end)
+
+    -- Click: bounce scale للحجم الطبيعي ثم fade تدريجي كالأصل
+    DinoCloseBtn.MouseButton1Click:Connect(function()
+        if DinoCloseBtn.BackgroundTransparency >= 1 then return end
+        PlayClickSound()
+        TweenService:Create(closeBtnScale, tiBack, {Scale = 1.0}):Play()
+        task.spawn(function()
+            task.wait(0.18)
+            local tiFade = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            SafeTween(Title,          tiFade, {TextTransparency = 1})
+            SafeTween(DinoPanelBg,    tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoCloseBtn,   tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoPanelImage, tiFade, {ImageTransparency = 1})
+            SafeTween(DinoAssetLabel, tiFade, {TextTransparency = 1})
+            SafeTween(DinoRunBtn,     tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoSeparator,  tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoDescLabel,  tiFade, {TextTransparency = 1})
+            SafeTween(DinoTextScroll, tiFade, {ScrollBarImageTransparency = 1})
+            SafeTween(DinoPanelBg,    tiFade, {ScrollBarImageTransparency = 1})
+            task.wait(0.25)
+            DinoLaunchPanel.Visible = false
+
+            GameSelectionFrame.Visible = true
+            local t = Translations[SelectedLanguage] or Translations.English
+            Title.Text = IsLoggedIn and t.SelectGame or t.RequireKeyFirst
+
+            local tiIn = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            SafeTween(Title,          tiIn, {TextTransparency = 0})
+            SafeTween(GamesContentBox, tiIn, {BackgroundTransparency = 0.90})
+            SafeTween(GameDetailPanel, tiIn, {BackgroundTransparency = 0.90})
+            SafeTween(GameScrollFrame, tiIn, {ScrollBarImageTransparency = 0.95})
+            if SelectedGameCard and DetailImage.Image ~= "" then
+                SafeTween(DetailImage,     tiIn, {ImageTransparency = 0})
+                SafeTween(DetailNameLabel, tiIn, {TextTransparency = 0})
+                SafeTween(AntiBanLabel,    tiIn, {TextTransparency = 0})
+                LaunchBtn.BackgroundColor3 = TargetGlowColor
+                SafeTween(LaunchBtn, tiIn, {BackgroundTransparency = 0.9, TextTransparency = 0})
+            end
+            for _, img in pairs(GameImagesList) do
+                local isSel = (SelectedGameCard == img)
+                SafeTween(img, tiIn, {ImageTransparency = isSel and 0 or 0.60})
+            end
+            for _, lbl in pairs(GameLabelsList) do
+                SafeTween(lbl, tiIn, {TextTransparency = 0})
+            end
+            SafeTween(WarningLabel, tiIn, {TextTransparency = 0})
+        end)
+    end)
+end
+
+-- زر RUN: تشغيل السكريبت فعلياً، مع منع التشغيل إذا كانت اللعبة قيد التطوير أو معطّلة
+SetupDinoBtn(DinoRunBtn, function()
+    local panelData = SelectedGameName and DinoConfirmPanelData[SelectedGameName]
+    -- [Combat Warriors Disabled]: الزر معطّل تماماً ولا يتفاعل
+    if panelData and panelData.Disabled then
+        return
+    end
+    if panelData and panelData.UnderDevelopment then
+        local oldText = DinoRunBtn.Text
+        DinoRunBtn.Text = "UNDER DEVELOPMENT"
+        task.delay(2, function()
+            if DinoRunBtn and DinoRunBtn.Parent then
+                DinoRunBtn.Text = oldText
+            end
+        end)
+        return
+    end
+    if SelectedGameUrl then
+        task.spawn(function()
+            local tiFade = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            SafeTween(DinoPanelBg,    tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoCloseBtn,   tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoPanelImage, tiFade, {ImageTransparency = 1})
+            SafeTween(DinoAssetLabel, tiFade, {TextTransparency = 1})
+            SafeTween(DinoRunBtn,     tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoSeparator,  tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoDescLabel,  tiFade, {TextTransparency = 1})
+            SafeTween(DinoTextScroll, tiFade, {ScrollBarImageTransparency = 1})
+            SafeTween(DinoPanelBg,    tiFade, {ScrollBarImageTransparency = 1})
+            task.wait(0.2)
+            FadeOutAndExecute(SelectedGameUrl)
+        end)
+    end
+end)
+
+-- ====================================================================
+-- LaunchBtn: فحص إذا كانت اللعبة المختارة موجودة ضمن DinoConfirmPanelData -> فتح البانيل ببياناتها
+--            وإلا -> تشغيل مباشر
+-- ====================================================================
+AnimateButton(LaunchBtn, function()
+    if IsLoggedIn and SelectedGameName then
+        local panelData = DinoConfirmPanelData[SelectedGameName]
+        if panelData then
+            _DinoPanelTitle = panelData.Title
+            _DinoPanelImageId = panelData.ImageId
+            _DinoPanelDescText = panelData.DescText
+            task.spawn(OpenDinoPanel)
+        elseif SelectedGameUrl then
+            FadeOutAndExecute(SelectedGameUrl)
+        end
+    end
+end)
+
+local SettingTabs = {LanguageContainer, UIThemeContainer, UpdatesContainer, CreditsContainer}
+
+local function SwitchSettingTab(targetIndex)
+    if CurrentSettingTab == targetIndex then return end
+    
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    
+    for _, el in ipairs(SettingsContentBox:GetDescendants()) do
+        if el:IsA("TextLabel") or el:IsA("TextButton") then
+            SafeTween(el, ti, {TextTransparency = 1, BackgroundTransparency = 1})
+        elseif el:IsA("ImageLabel") then
+            SafeTween(el, ti, {ImageTransparency = 1})
+        elseif el:IsA("Frame") and el ~= SettingsContentBox then
+             SafeTween(el, ti, {BackgroundTransparency = 1})
+        elseif el:IsA("UIStroke") then
+             SafeTween(el, ti, {Transparency = 1})
+        end
+    end
+    
+    SafeTween(LangVerticalScroll, ti, {ScrollBarImageTransparency = 1})
+    SafeTween(UpdatesScroll, ti, {ScrollBarImageTransparency = 1})
+
+    task.wait(0.15)
+    
+    for i, tab in ipairs(SettingTabs) do
+        if tab then tab.Visible = (i == targetIndex) end
+    end
+    
+    CurrentSettingTab = targetIndex
+    
+    for i, btn in ipairs(SettingButtonsList) do
+        local scaleObj = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)
+        if i == targetIndex then
+            btn:SetAttribute("TargetScale", 1.06)
+            btn:SetAttribute("TargetTrans", 0.95)
+            btn:SetAttribute("TextTargetTrans", 0)
+            SafeTween(scaleObj, ti, {Scale = 1.06})
+             SafeTween(btn, ti, {BackgroundTransparency = 0.95, TextTransparency = 0})
+        else
+            btn:SetAttribute("TargetScale", 0.94)
+            btn:SetAttribute("TargetTrans", 0.75)
+            btn:SetAttribute("TextTargetTrans", 0.5)
+            SafeTween(scaleObj, ti, {Scale = 0.94})
+            SafeTween(btn, ti, {BackgroundTransparency = 0.75, TextTransparency = 0.5})
+        end
+    end
+    
+    if targetIndex == 1 then
+        SafeTween(LangVerticalScroll, ti, {ScrollBarImageTransparency = 0.95})
+        UpdateLanguageVisuals()
+        SafeTween(LangSectionTitle, ti, {TextTransparency = 0})
+        SafeTween(ResetLangBtn, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+        SafeTween(ApplyLangBtn, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+        SafeTween(LangInfoLabel, ti, {TextTransparency = 0})
+    elseif targetIndex == 2 then
+         ActiveThemeTab = ActiveThemeTab or SizeSquareBtn
+        local targetSubMenu = nil
+        if ActiveThemeTab == SizeSquareBtn then targetSubMenu = SizeSubMenu
+        elseif ActiveThemeTab == AnimSquareBtn then targetSubMenu = AnimSubMenu
+        else targetSubMenu = ColorSubMenu end
+        
+        CurrentThemeSubPage = nil 
+        UpdateThemeTabsVisuals()
+        SwitchThemeSubPage(targetSubMenu, ActiveThemeTab)
+    elseif targetIndex == 3 then
+        SafeTween(UpdatesScroll, ti, {ScrollBarImageTransparency = 0.95})
+        SafeTween(DateLabel, ti, {TextTransparency = 0})
+        for _, box in ipairs(UpdatesScroll:GetChildren()) do
+            if box:IsA("Frame") then
+                SafeTween(box, ti, {BackgroundTransparency = 0.8})
+                for _, lbl in ipairs(box:GetChildren()) do
+                    if lbl:IsA("TextLabel") then
+                        SafeTween(lbl, ti, {TextTransparency = 0})
+                     end
+                end
+            end
+           end
+    elseif targetIndex == 4 then
+        for _, el in ipairs(CreditsContainer:GetDescendants()) do
+            if el:IsA("TextLabel") then
+                SafeTween(el, ti, {TextTransparency = 0.70})
+            elseif el:IsA("ImageLabel") then
+                SafeTween(el, ti, {ImageTransparency = 0.50})
+            end
+        end
+    end
+end
+
+local function CreateSettingBtn(name, tabIndex)
+    local btn = Instance.new("TextButton")
+    
+    btn.Size = UDim2.new(0, 110, 0, 30) 
+    btn.BackgroundColor3 = CurrentBoxBgColor 
+    btn.BorderSizePixel = 0 
+    btn.Text = name
+    btn.Font = Enum.Font.Gotham 
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 9
+    btn.Parent = SettingsScroll
+    btn.TextTransparency = 1
+    btn.BackgroundTransparency = 1 
+    btn.ZIndex = 13
+    btn.AutoButtonColor = false
+    
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    
+    AnimateButton(btn, function()
+        SwitchSettingTab(tabIndex)
+    end)
+    
+    table.insert(SettingButtonsList, btn)
+end
+
+CreateGameCard("Kaiju Universe",      Scripts["Kaiju Universe"],     "70793896241390",  1, "125734830297581")
+CreateGameCard("Kaiju Alpha",         Scripts["Kaiju Alpha"],        "75032853427597",  2, "135276757679759")
+CreateGameCard("Dinosaur Simulator",  Scripts["Dinosaur Simulator"], "84114647817364",  3, "89158975734454")
+CreateGameCard("Combat Warriors",     Scripts["Combat Warriors"],    "138847356555769", 4, "93371143467696")
+CreateGameCard("Kaiju Multiverse",            Scripts["Kaiju Multiverse"],           "95473519562818", 5, "89987167980983")
+
+
+
+CreateSettingBtn(Translations.English.LanguageSet, 1)
+CreateSettingBtn(Translations.English.UIThemeSet, 2)
+CreateSettingBtn(Translations.English.LatestUpdates, 3) 
+CreateSettingBtn(Translations.English.DevCreditsSet, 4) 
+
+for _, langName in pairs(LanguagesList) do
+    local lBtn = Instance.new("TextButton")
+    lBtn.Name = langName
+    lBtn.Size = UDim2.new(0.94, 0, 0, 24) 
+    lBtn.BackgroundColor3 = CurrentBoxBgColor
+    lBtn.BorderSizePixel = 0
+    lBtn.Text = langName:upper()
+    lBtn.Font = Enum.Font.Gotham
+    lBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lBtn.TextSize = 8.5
+    lBtn.ZIndex = 16
+    lBtn.Parent = LangVerticalScroll
+    lBtn.AutoButtonColor = false
+    
+    Instance.new("UICorner", lBtn).CornerRadius = UDim.new(0, 4)
+    
+    local lScale = Instance.new("UIScale", lBtn)
+    LanguageButtons[langName] = lBtn
+ 
+    lBtn.MouseEnter:Connect(function()
+         if TargetLanguage ~= langName then
+            SafeTween(lBtn, TweenInfo.new(0.12), {TextTransparency = 0.15})
+            local targetScale = (lBtn:GetAttribute("TargetScale") or 0.94) + 0.02
+            SafeTween(lScale, TweenInfo.new(0.12), {Scale = targetScale})
+         end
+    end)
+    
+    lBtn.MouseLeave:Connect(function()
+        if TargetLanguage ~= langName then
+             SafeTween(lBtn, TweenInfo.new(0.12), {TextTransparency = 0.5})
+            local leaveScale = lBtn:GetAttribute("TargetScale") or 0.94
+            SafeTween(lScale, TweenInfo.new(0.12), {Scale = leaveScale})
+        end
+    end)
+    
+    lBtn.MouseButton1Click:Connect(function()
+        PlayClickSound()
+        TargetLanguage = langName
+        UpdateLanguageVisuals()
+      end)
+end
+
+AnimateButton(ResetLangBtn, function()
+     TargetLanguage = "English"
+    SelectedLanguage = "English"
+    UpdateLanguageVisuals()
+    UpdateTranslations()
+    if SaveSettings then SaveSettings() end
+    Title.Text = Translations.English.Settings
+end)
+
+AnimateButton(ApplyLangBtn, function()
+    SelectedLanguage = TargetLanguage
+    UpdateTranslations()
+    if SaveSettings then SaveSettings() end
+    local t = Translations[SelectedLanguage]
+    Title.Text = t.ApplyLang .. " ✓"
+    task.delay(1.5, function()
+        if CurrentPage == "Settings" then Title.Text = t.Settings end
+    end)
+end)
+
+WarningLabel.Parent = GameSelectionFrame
+WarningLabel.Size = UDim2.new(0.94, 0, 0, 18)
+WarningLabel.Position = UDim2.new(0.03, 0, 0, 242)
+WarningLabel.BackgroundTransparency = 1
+WarningLabel.Text = ""
+WarningLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+WarningLabel.Font = Enum.Font.Gotham
+WarningLabel.TextSize = 8
+WarningLabel.TextTransparency = 1
+WarningLabel.ZIndex = 12
+WarningLabel.Visible = false
+
+local function SetupNavBtn(btn, text, xPos, name)
+    btn.Name = name
+    btn.Parent = ContentFrame
+    btn.Size = UDim2.new(0.21, 0, 0, 32) 
+    btn.Position = UDim2.new(xPos, 0, 0, 240) 
+    btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    btn.Font = Enum.Font.Gotham
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 8.5
+    btn.ZIndex = 15
+    btn.BackgroundTransparency = 1 
+    btn.TextTransparency = 1
+    btn.BorderSizePixel = 0
+    Instance.new("UIScale", btn) 
+end
+
+SetupNavBtn(NavKeyBtn, Translations.English.KeySystem, 0.03, "NavKeyBtn")
+SetupNavBtn(NavGamesBtn, Translations.English.Games, 0.26, "NavGamesBtn")
+SetupNavBtn(NavSettingsBtn, Translations.English.Settings, 0.49, "NavSettingsBtn")
+SetupNavBtn(ExitBtn, Translations.English.Exit, 0.72, "ExitBtn")
+
+if not RequireKeyForEU then
+    NavKeyBtn.Visible = false
+    NavGamesBtn.Position = UDim2.new(0.12, 0, 0, 240)
+    NavSettingsBtn.Position = UDim2.new(0.42, 0, 0, 240)
+    ExitBtn.Position = UDim2.new(0.72, 0, 0, 240)
+end
+
+Instance.new("UIScale", KeyInput)
+Instance.new("UIScale", SubmitBtn)
+Instance.new("UIScale", GetLinkBtn)
+Instance.new("UIScale", ResetLangBtn)
+Instance.new("UIScale", ApplyLangBtn)
+
+local function FadeOutPage(page)
+    local ti = TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    -- إخفاء الـ Title مع كل صفحة حتى يتغير النص بسلاسة عند الانتقال
+    SafeTween(Title, ti, {TextTransparency = 1})
+    if page == "Key" then
+        SafeTween(KeyInput, ti, {BackgroundTransparency = 1, TextTransparency = 1})
+        SafeTween(SubmitBtn, ti, {BackgroundTransparency = 1, TextTransparency = 1})
+        SafeTween(GetLinkBtn, ti, {BackgroundTransparency = 1, TextTransparency = 1})
+        SafeTween(KeyDescLabel, ti, {TextTransparency = 1}) 
+        task.wait(0.25)
+         KeyInput.Visible = false
+        SubmitBtn.Visible = false
+        GetLinkBtn.Visible = false
+        KeyDescLabel.Visible = false
+    elseif page == "Games" then
+        SafeTween(GamesContentBox, ti, {BackgroundTransparency = 1})
+        SafeTween(GameDetailPanel, ti, {BackgroundTransparency = 1})
+        SafeTween(DetailImage, ti, {ImageTransparency = 1})
+        SafeTween(DetailNameLabel, ti, {TextTransparency = 1})
+        SafeTween(LaunchBtn, ti, {BackgroundTransparency = 1, TextTransparency = 1})
+        SafeTween(AntiBanLabel, ti, {TextTransparency = 1}) -- إخفاء النص
+        for _, img in pairs(GameImagesList) do
+            SafeTween(img, ti, {ImageTransparency = 1, Position = UDim2.new(0, 0, 0, 0)})
+            local sc = img:FindFirstChildOfClass("UIScale")
+            if sc then sc.Scale = 1 end
+        end
+         for _, lbl in pairs(GameLabelsList) do
+            SafeTween(lbl, ti, {TextTransparency = 1})
+        end
+        SafeTween(GameScrollFrame, ti, {ScrollBarImageTransparency = 1})
+        SafeTween(WarningLabel, ti, {TextTransparency = 1})
+         SelectedGameCard = nil
+        SelectedGameUrl = nil
+        SelectedGameName = nil
+        task.wait(0.25)
+        GameSelectionFrame.Visible = false
+    elseif page == "Settings" then
+        SafeTween(SettingsScroll, ti, {ScrollBarImageTransparency = 1})
+        for _, btn in pairs(SettingButtonsList) do
+              SafeTween(btn, ti, {BackgroundTransparency = 1, TextTransparency = 1})
+        end
+         for _, el in ipairs(SettingsContentBox:GetDescendants()) do
+            if el:IsA("TextLabel") or el:IsA("TextButton") then
+                SafeTween(el, ti, {TextTransparency = 1, BackgroundTransparency = 1})
+            elseif el:IsA("ImageLabel") then
+                  SafeTween(el, ti, {ImageTransparency = 1})
+            elseif el:IsA("Frame") and el ~= SettingsContentBox then
+                  SafeTween(el, ti, {BackgroundTransparency = 1})
+            elseif el:IsA("UIStroke") then
+                SafeTween(el, ti, {Transparency = 1})
+            end
+          end
+         SafeTween(SettingsContentBox, ti, {BackgroundTransparency = 1})
+        task.wait(0.25)
+          SettingsFrame.Visible = false
+    end
+end
+
+local function FadeInPage(page)
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local t = Translations[SelectedLanguage] or Translations.English
+    
+    if page == "Key" then
+        KeyInput.Visible = true
+        SubmitBtn.Visible = true
+        GetLinkBtn.Visible = true
+        if not IsLoggedIn then
+            Title.Text = t.KeySystem
+             KeyDescLabel.Visible = true 
+            SafeTween(Title, ti, {TextTransparency = 0})
+            SafeTween(KeyInput, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+            SafeTween(SubmitBtn, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+            SafeTween(GetLinkBtn, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+            SafeTween(KeyDescLabel, ti, {TextTransparency = 0.4}) 
+        else
+            Title.Text = t.AlreadyLogged
+            SafeTween(Title, ti, {TextTransparency = 0})
+            SafeTween(KeyInput, ti, {BackgroundTransparency = 0.98, TextTransparency = 0.7})
+            SafeTween(SubmitBtn, ti, {BackgroundTransparency = 0.98, TextTransparency = 0.7})
+            SafeTween(GetLinkBtn, ti, {BackgroundTransparency = 0.98, TextTransparency = 0.7})
+           end
+    elseif page == "Games" then
+        GameSelectionFrame.Visible = true
+         SafeTween(GamesContentBox, ti, {BackgroundTransparency = 0.90})
+        SafeTween(GameDetailPanel, ti, {BackgroundTransparency = 0.90})
+        if IsLoggedIn then
+            Title.Text = t.SelectGame
+            SafeTween(Title, ti, {TextTransparency = 0})
+            for _, img in pairs(GameImagesList) do
+                local sc = img:FindFirstChildOfClass("UIScale")
+                if sc then sc.Scale = 1 end
+                SafeTween(img, ti, {ImageTransparency = 0, Position = UDim2.new(0, 0, 0, 0)})
+            end
+            for _, lbl in pairs(GameLabelsList) do
+                SafeTween(lbl, ti, {TextTransparency = 0})
+            end
+            SafeTween(GameScrollFrame, ti, {ScrollBarImageTransparency = 0.95})
+            SafeTween(WarningLabel, ti, {TextTransparency = 0})
+            -- إظهار النص الأخضر إذا كانت هناك لعبة محددة مسبقاً
+            if SelectedGameCard and DetailImage.Image ~= "" then
+                SafeTween(DetailImage, ti, {ImageTransparency = 0})
+                SafeTween(DetailNameLabel, ti, {TextTransparency = 0})
+                SafeTween(AntiBanLabel, ti, {TextTransparency = 0})
+                LaunchBtn.BackgroundColor3 = TargetGlowColor
+                SafeTween(LaunchBtn, ti, {BackgroundTransparency = 0.9, TextTransparency = 0})
+            else
+                -- إذا لم تكن هناك لعبة محددة، نخفي النص مؤقتاً
+                AntiBanLabel.TextTransparency = 1
+            end
+        else
+            Title.Text = t.RequireKeyFirst
+            SafeTween(Title, ti, {TextTransparency = 0})
+             for _, img in pairs(GameImagesList) do
+                local sc = img:FindFirstChildOfClass("UIScale")
+                if sc then sc.Scale = 1 end
+                SafeTween(img, ti, {ImageTransparency = 0.5, Position = UDim2.new(0, 0, 0, 0)})
+            end
+             for _, lbl in pairs(GameLabelsList) do
+                SafeTween(lbl, ti, {TextTransparency = 0.7})
+            end
+            SafeTween(WarningLabel, ti, {TextTransparency = 0.7})
+             AntiBanLabel.TextTransparency = 1 -- إخفاء النص
+         end
+    elseif page == "Settings" then
+        SettingsFrame.Visible = true
+        Title.Text = t.Settings
+        SafeTween(Title, ti, {TextTransparency = 0})
+        SafeTween(SettingsScroll, ti, {ScrollBarImageTransparency = 0.95})
+        for i, btn in pairs(SettingButtonsList) do
+            local targetTrans = (CurrentSettingTab == i) and 0.95 or 0.75
+               local targetTextTrans = (CurrentSettingTab == i) and 0 or 0.5
+            SafeTween(btn, ti, {BackgroundTransparency = targetTrans, TextTransparency = targetTextTrans})
+        end
+        SafeTween(SettingsContentBox, ti, {BackgroundTransparency = 0.94})
+        
+        if CurrentSettingTab == 1 then
+            SafeTween(LangVerticalScroll, ti, {ScrollBarImageTransparency = 0.95})
+             SafeTween(LangSectionTitle, ti, {TextTransparency = 0})
+            SafeTween(ResetLangBtn, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+            SafeTween(ApplyLangBtn, ti, {BackgroundTransparency = 0.92, TextTransparency = 0})
+            SafeTween(LangInfoLabel, ti, {TextTransparency = 0})
+            UpdateLanguageVisuals()
+        elseif CurrentSettingTab == 2 then
+            if ThemeMainMenu then
+                 SafeTween(ThemeMainMenu, ti, {BackgroundTransparency = 0.92})
+                UpdateThemeTabsVisuals()
+            end
+            if CurrentThemeSubPage then
+                for _, el in ipairs(CurrentThemeSubPage:GetDescendants()) do
+                    if el:IsA("TextLabel") then
+                            SafeTween(el, ti, {TextTransparency = 0})
+                    elseif el:IsA("TextButton") then
+                         SafeTween(el, ti, {TextTransparency = 0})
+                        if el.Name == "SizeSmallBtn" or el.Name == "SizeLargeBtn" then
+                        elseif el.Name == "ActiveColorBtn" or el == NormalRedBtn or el == DarkRedBtn or el == BlueBtn or el == LightBlueBtn or el == PinkBtn or el == DarkPinkBtn or el == LightPinkBtn then
+                              SafeTween(el, ti, {BackgroundTransparency = el:GetAttribute("TargetTrans") or 0})
+                          else
+                              SafeTween(el, ti, {BackgroundTransparency = el:GetAttribute("TargetTrans") or 0.92})
+                        end
+                    elseif el:IsA("UIStroke") then
+                        if el.Parent and el.Parent.Name == "ActiveColorBtn" then
+                            SafeTween(el, ti, {Transparency = 0})
+                        end
+                      end
+                    end
+                 if CurrentThemeSubPage == SizeSubMenu then RefreshSizeButtonsVisuals() end
+            end
+        elseif CurrentSettingTab == 3 then
+            SafeTween(UpdatesScroll, ti, {ScrollBarImageTransparency = 0.95})
+               SafeTween(DateLabel, ti, {TextTransparency = 0})
+             for _, box in ipairs(UpdatesScroll:GetChildren()) do
+                 if box:IsA("Frame") then
+                    SafeTween(box, ti, {BackgroundTransparency = 0.8})
+                     for _, lbl in ipairs(box:GetChildren()) do
+                          if lbl:IsA("TextLabel") then
+                              SafeTween(lbl, ti, {TextTransparency = 0})
+                        end
+                     end
+                  end
+              end
+         elseif CurrentSettingTab == 4 then
+            for _, el in ipairs(CreditsContainer:GetDescendants()) do
+                if el:IsA("TextLabel") then
+                      SafeTween(el, ti, {TextTransparency = 0.70})
+                  elseif el:IsA("ImageLabel") then
+                      SafeTween(el, ti, {ImageTransparency = 0.50})
+                end
+            end
+        end
+        
+          TargetLanguage = SelectedLanguage 
+    end
+end
+
+local function FadeIn()
+    while not _IntroReadyToLoad do
+        task.wait()
+    end
+
+    -- ====================================================================
+    -- مرحلة 1: الخلفية الملونة تظهر فوراً (تحت الشاشة السوداء)
+    -- ====================================================================
+    BackgroundOverlay.BackgroundTransparency = 0.4
+    MainFrame.BackgroundTransparency = 0
+
+    -- الـ glow يبدأ فوراً
+    task.spawn(function()
+        local start = os.clock()
+        local duration = 2.0
+        while os.clock() - start < duration do
+            local pct = (os.clock() - start) / duration
+            GlowAlpha = pct
+            task.wait()
+        end
+        GlowAlpha = 1
+    end)
+
+    -- ====================================================================
+    -- مرحلة 2: بعد ثانيتين الشاشة السوداء تروح، الأنيميشن يظهر
+    -- ====================================================================
+    MuteManager:Init()
+    MuteManager:FadeOutSounds(1)
+
+    task.wait(2)
+
+    local fadeOut = TweenService:Create(
+        IntroFrame,
+        TweenInfo.new(1.0, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+        {BackgroundTransparency = 1}
+    )
+    fadeOut:Play()
+
+    -- الأغنية تشتغل مع ظهور الأنيميشن
+    IntroMusic:Play()
+    SafeTween(IntroMusic, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Volume = 0.3})
+
+    -- نص التحميل يظهر في أسفل اليسار أثناء الأنيميشن
+    -- ====================================================================
+    -- Acrocan0 Hub + النقاط + نص التحميل: كلهم داخل frame واحد
+    -- Frame موقعه نسبي (أسفل اليسار) فيتكيف مع أي حجم شاشة
+    -- ====================================================================
+
+    -- حجم النصوص مبني على SizeIndex (نفس إعداد الحجم في الـ Settings)
+    -- Base: SizeIndex=15 (default) → TextSize 24/18، يتغير مع كل خطوة
+    local function GetIntroTextScale()
+        return ScaleValues[SizeIndex] / ScaleValues[15]
+    end
+    local baseTitleSize  = 24
+    local baseLoadSize   = 18
+    local baseTitleW     = 160
+    local baseTitleH     = 28
+    local baseDotsX      = 14 + 160 + 6
+
+    -- نحسب الـ Y positions بشكل ديناميكي بناءً على حجم النص الفعلي
+    -- بدل قيم ثابتة تتعطل لما يتغير الحجم
+    local baseDotSize    = 3
+    local baseDotSpacing = 8
+    local introScale     = GetIntroTextScale()
+    local titleSize      = math.round(baseTitleSize * introScale)
+    local loadSize       = math.round(baseLoadSize  * introScale)
+    local dotSize        = math.max(1, math.round(3 * introScale) - math.round(2 * math.abs(1 - introScale)))
+    local dotSpacing     = math.round(baseDotSpacing * introScale)
+    local realTextW = 0
+    pcall(function()
+        local ts = game:GetService("TextService")
+        local v2 = ts:GetTextSize("Acrocan0 Hub", titleSize, Enum.Font.GothamBold, Vector2.new(9999, 9999))
+        realTextW = v2.X
+    end)
+    if realTextW == 0 then realTextW = math.round(baseTitleW * introScale) end
+    local dotsStartX = 14 + realTextW + 5
+
+    -- المسافة من أسفل الـ frame: نص صغير تحت + عنوان فوقه + مسافة بسيطة
+    local bottomPad  = math.round(10 * introScale)
+    local loadLineH  = loadSize + 4
+    local titleLineH = titleSize + 4
+    local baseTitleY = -(bottomPad + loadLineH + titleLineH)   -- Y للعنوان
+    local baseLoadY  = -(bottomPad + loadLineH)                 -- Y لنص التحميل
+    local baseDotsY  = -(loadLineH + titleLineH) - 6 + math.floor(titleLineH * 0.1) - 10
+
+    local IntroHUDFrame = Instance.new("Frame")
+    IntroHUDFrame.Parent = ScreenGui
+    IntroHUDFrame.BackgroundTransparency = 1
+    IntroHUDFrame.AnchorPoint = Vector2.new(0, 1)
+    IntroHUDFrame.Position = UDim2.new(0, 0, 1, 0)
+    IntroHUDFrame.Size = UDim2.new(0.5, 0, 0, 80)
+    IntroHUDFrame.ZIndex = 999
+
+    -- UIScale مربوط بحجم الشاشة مثل باقي الواجهة
+    local IntroHUDScale = Instance.new("UIScale")
+    IntroHUDScale.Scale = GetBackgroundScale()
+    IntroHUDScale.Parent = IntroHUDFrame
+    Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+        if IntroHUDScale and IntroHUDScale.Parent then
+            IntroHUDScale.Scale = GetBackgroundScale()
+        end
+    end)
+
+    -- "Acrocan0 Hub"
+    local HubTitleLabel = Instance.new("TextLabel")
+    HubTitleLabel.Parent = IntroHUDFrame
+    HubTitleLabel.BackgroundTransparency = 1
+    HubTitleLabel.AnchorPoint = Vector2.new(0, 1)
+    HubTitleLabel.Position = UDim2.new(0, 14, 1, baseTitleY)
+    HubTitleLabel.Size = UDim2.new(0, baseTitleW, 0, baseTitleH)
+    HubTitleLabel.Font = Enum.Font.GothamBold
+    HubTitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    HubTitleLabel.TextSize = titleSize
+    HubTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    HubTitleLabel.TextTransparency = 1
+    HubTitleLabel.ZIndex = 999
+    HubTitleLabel.Text = "Acrocan0 Hub"
+
+    -- النقاط الثلاث داخل الـ frame، جنب العنوان
+
+    local Dot1 = Instance.new("Frame")
+    Dot1.Parent = IntroHUDFrame
+    Dot1.BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75)
+    Dot1.BackgroundTransparency = 1
+    Dot1.AnchorPoint = Vector2.new(0, 1)
+    Dot1.Position = UDim2.new(0, dotsStartX, 1, baseDotsY)
+    Dot1.Size = UDim2.new(0, dotSize, 0, dotSize)
+    Dot1.BorderSizePixel = 0
+    Dot1.ZIndex = 999
+    Instance.new("UICorner", Dot1).CornerRadius = UDim.new(1, 0)
+
+    local Dot2 = Instance.new("Frame")
+    Dot2.Parent = IntroHUDFrame
+    Dot2.BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75)
+    Dot2.BackgroundTransparency = 1
+    Dot2.AnchorPoint = Vector2.new(0, 1)
+    Dot2.Position = UDim2.new(0, dotsStartX + dotSpacing, 1, baseDotsY)
+    Dot2.Size = UDim2.new(0, dotSize, 0, dotSize)
+    Dot2.BorderSizePixel = 0
+    Dot2.ZIndex = 999
+    Instance.new("UICorner", Dot2).CornerRadius = UDim.new(1, 0)
+
+    local Dot3 = Instance.new("Frame")
+    Dot3.Parent = IntroHUDFrame
+    Dot3.BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75)
+    Dot3.BackgroundTransparency = 1
+    Dot3.AnchorPoint = Vector2.new(0, 1)
+    Dot3.Position = UDim2.new(0, dotsStartX + dotSpacing * 2, 1, baseDotsY)
+    Dot3.Size = UDim2.new(0, dotSize, 0, dotSize)
+    Dot3.BorderSizePixel = 0
+    Dot3.ZIndex = 999
+    Instance.new("UICorner", Dot3).CornerRadius = UDim.new(1, 0)
+
+    -- نص التحميل تحت العنوان
+    local LoadingLabel = Instance.new("TextLabel")
+    LoadingLabel.Parent = IntroHUDFrame
+    LoadingLabel.BackgroundTransparency = 1
+    LoadingLabel.AnchorPoint = Vector2.new(0, 1)
+    LoadingLabel.Position = UDim2.new(0, 14, 1, baseLoadY)
+    LoadingLabel.Size = UDim2.new(1, -14, 0, 22)
+    LoadingLabel.Font = Enum.Font.Gotham
+    LoadingLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    LoadingLabel.TextSize = loadSize
+    LoadingLabel.TextXAlignment = Enum.TextXAlignment.Left
+    LoadingLabel.TextTransparency = 1
+    LoadingLabel.ZIndex = 999
+    LoadingLabel.Text = "Initializing interface"
+
+    -- النقاط تبدأ شفافة
+    Dot1.BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75)
+    Dot2.BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75)
+    Dot3.BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75)
+    local tiText = TweenInfo.new(1.0, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    SafeTween(HubTitleLabel, tiText, {TextTransparency = 0})
+    SafeTween(LoadingLabel, tiText, {TextTransparency = 0.3})
+    SafeTween(Dot1, tiText, {BackgroundTransparency = 0.70})
+    SafeTween(Dot2, tiText, {BackgroundTransparency = 0.70})
+    SafeTween(Dot3, tiText, {BackgroundTransparency = 0.70})
+
+    -- أنيميشن النقاط داخل الـ frame: تطلع لفوق بالترتيب
+    local dotBaseY = baseDotsY
+    local dotUpY   = baseDotsY - math.max(3, dotSize * 2)
+    local dotTweenUp   = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local dotTweenDown = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
+    local allDots = {Dot1, Dot2, Dot3}
+    local _dotsRunning = true
+
+    task.spawn(function()
+        -- كل نقطة تبدأ بتأخير مختلف لتكوين موجة
+        for i, dot in ipairs(allDots) do
+            task.spawn(function()
+                task.wait((i - 1) * 0.2)
+                while _dotsRunning do
+                    if not dot or not dot.Parent then break end
+                    local curX = dot.Position.X.Offset
+                    SafeTween(dot, dotTweenUp,   {Position = UDim2.new(0, curX, 1, dotUpY), BackgroundColor3 = Color3.new(1,1,1), BackgroundTransparency = 0})
+                    task.wait(0.8)
+                    if not dot or not dot.Parent then break end
+                    SafeTween(dot, dotTweenDown, {Position = UDim2.new(0, curX, 1, dotBaseY), BackgroundColor3 = TargetGlowColor:Lerp(Color3.new(1,1,1), 0.75), BackgroundTransparency = 0.70})
+                    task.wait(0.9)
+                end
+            end)
+        end
+    end)
+
+    -- نص التحميل يتبدل بدون تكرار
+    task.spawn(function()
+        local messages = {
+            "Initializing interface",
+            "Loading UI framework",
+            "Applying color theme",
+            "Setting up animations",
+            "Loading v1 - Fast Beam",
+            "Loading v2 - Vortex",
+            "Loading v3 - The Sun",
+            "Configuring UI size",
+            "Loading color palette",
+            "Connecting to key system",
+            "Verifying key data",
+            "Loading key timer",
+            "Loading Kaiju Universe script",
+            "Loading Kaiju Alpha script",
+            "Loading Combat Warriors script",
+            "Loading Dinosaur Simulator script",
+            "Auto server switch: ON",
+            "Diamond detector: loading",
+            "Meteor tracker: loading",
+            "Auto play button: ready",
+            "Loading games page",
+            "Loading settings page",
+            "Loading language system",
+            "Setting language: English",
+            "Loading latest updates",
+            "Loading developer credits",
+            "Loading navigation bar",
+            "Loading sound system",
+            "Loading click sounds",
+            "Loading page sounds",
+            "Loading intro music",
+            "Muting game sounds",
+            "Saving settings file",
+            "Reading settings file",
+            "Loading theme settings",
+            "Loading size settings",
+            "Loading animation style",
+            "Preparing glow layers",
+            "Rendering background",
+            "Finalizing interface",
+            "Almost there",
+            "One moment",
+            "Ready",
+        }
+        for _, msg in ipairs(messages) do
+            if not LoadingLabel or not LoadingLabel.Parent then break end
+            LoadingLabel.Text = msg
+            task.wait(0.23)
+        end
+    end)
+
+    fadeOut.Completed:Wait()
+
+    if IntroGui and IntroGui.Parent then
+        IntroGui:Destroy()
+    end
+
+    -- ====================================================================
+    -- مرحلة 3: الأنيميشن + الأغنية يشتغلان لـ 10 ثواني
+    -- ====================================================================
+    task.wait(10)
+
+    -- ننتظر دورة كاملة للنقاط قبل ما نوقفها
+    task.wait(2.5)
+
+    -- كل العناصر تختفي
+    _dotsRunning = false
+    local tiFadeText = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    SafeTween(HubTitleLabel, tiFadeText, {TextTransparency = 1})
+    SafeTween(LoadingLabel, tiFadeText, {TextTransparency = 1})
+    SafeTween(Dot1, tiFadeText, {BackgroundTransparency = 1})
+    SafeTween(Dot2, tiFadeText, {BackgroundTransparency = 1})
+    SafeTween(Dot3, tiFadeText, {BackgroundTransparency = 1})
+    task.wait(0.5)
+    if IntroHUDFrame and IntroHUDFrame.Parent then IntroHUDFrame:Destroy() end
+
+    -- [[ Ban System ]]
+    if player.Name == "NuoisLostYT" then
+        local BanFrame = Instance.new("Frame")
+        BanFrame.Parent = ScreenGui
+        BanFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        BanFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+        BanFrame.Size = UDim2.new(0, 400, 0, 60)
+        BanFrame.BackgroundTransparency = 1
+        BanFrame.ZIndex = 999
+
+        local BanScale = Instance.new("UIScale")
+        BanScale.Scale = GetBackgroundScale()
+        BanScale.Parent = BanFrame
+        Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            if BanScale and BanScale.Parent then
+                BanScale.Scale = GetBackgroundScale()
+            end
+        end)
+
+        local BanLabel = Instance.new("TextLabel")
+        BanLabel.Parent = BanFrame
+        BanLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+        BanLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+        BanLabel.Size = UDim2.new(1, 0, 1, 0)
+        BanLabel.BackgroundTransparency = 1
+        BanLabel.Font = Enum.Font.Gotham
+        BanLabel.Text = "You are banned from using this script"
+        BanLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        BanLabel.TextSize = titleSize
+        BanLabel.TextWrapped = true
+        BanLabel.TextTransparency = 1
+        BanLabel.ZIndex = 999
+        SafeTween(BanLabel, TweenInfo.new(2.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {TextTransparency = 0})
+        while true do task.wait(60) end
+    end
+
+    -- ====================================================================
+    -- مرحلة 4: الواجهة تطلع تدريجياً (تنزلق من اليمين للمنتصف)
+    -- ====================================================================
+    local ti = TweenInfo.new(1.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+    task.wait(0.4)
+
+    -- الواجهة تظهر في المنتصف فجأة بعد انتهاء الـ loading
+    ContentFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    task.wait(0.2)
+
+    SafeTween(Title, ti, {TextTransparency = 0})
+
+    UpdateNavigationFocus()
+    UpdateTranslations()
+
+    CurrentThemeSubPage = SizeSubMenu
+    ActiveThemeTab = SizeSquareBtn
+    SwitchThemeSubPage(SizeSubMenu, SizeSquareBtn)
+
+    if IsLoggedIn then
+        CurrentPage = "Games"
+        UpdateNavigationFocus()
+        PlayPageChangeSound()
+        FadeInPage("Games")
+        if RequireKeyForEU then StartTimer(EndTime) end
+    else
+        CurrentPage = "Key"
+        UpdateNavigationFocus()
+        PlayPageChangeSound()
+        FadeInPage("Key")
+    end
+end
+
+AnimateButton(NavKeyBtn, function()
+      if not RequireKeyForEU then return end 
+    if CurrentPage == "Key" then return end
+    local previousPage = CurrentPage
+    CurrentPage = "Key"
+    UpdateNavigationFocus() 
+    task.spawn(function()
+        if DinoLaunchPanel.Visible then
+            local tiFade = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            SafeTween(DinoPanelBg,    tiFade, {BackgroundTransparency = 1})
+             SafeTween(DinoCloseBtn,   tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoPanelImage, tiFade, {ImageTransparency = 1})
+            SafeTween(DinoAssetLabel, tiFade, {TextTransparency = 1})
+            SafeTween(DinoRunBtn,     tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoSeparator,  tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoDescLabel,  tiFade, {TextTransparency = 1})
+            SafeTween(DinoTextScroll, tiFade, {ScrollBarImageTransparency = 1})
+            SafeTween(DinoPanelBg,    tiFade, {ScrollBarImageTransparency = 1})
+            task.wait(0.2)
+            DinoLaunchPanel.Visible = false
+        else
+            FadeOutPage(previousPage)
+        end
+        PlayPageChangeSound() 
+        FadeInPage("Key")
+    end)
+end)
+
+AnimateButton(NavGamesBtn, function()
+    if CurrentPage == "Games" and not DinoLaunchPanel.Visible then return end
+    local previousPage = CurrentPage
+    CurrentPage = "Games"
+    UpdateNavigationFocus() 
+    task.spawn(function()
+        if DinoLaunchPanel.Visible then
+            CloseDinoPanel()
+        else
+            FadeOutPage(previousPage)
+             PlayPageChangeSound() 
+            FadeInPage("Games")
+        end
+    end)
+end)
+
+AnimateButton(NavSettingsBtn, function()
+    if CurrentPage == "Settings" then return end
+    local previousPage = CurrentPage
+    CurrentPage = "Settings"
+    UpdateNavigationFocus() 
+    task.spawn(function()
+        if DinoLaunchPanel.Visible then
+            local tiFade = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            SafeTween(DinoPanelBg,    tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoCloseBtn,   tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoPanelImage, tiFade, {ImageTransparency = 1})
+            SafeTween(DinoAssetLabel, tiFade, {TextTransparency = 1})
+            SafeTween(DinoRunBtn,     tiFade, {BackgroundTransparency = 1, TextTransparency = 1})
+            SafeTween(DinoSeparator,  tiFade, {BackgroundTransparency = 1})
+            SafeTween(DinoDescLabel,  tiFade, {TextTransparency = 1})
+            SafeTween(DinoTextScroll, tiFade, {ScrollBarImageTransparency = 1})
+            SafeTween(DinoPanelBg,    tiFade, {ScrollBarImageTransparency = 1})
+            task.wait(0.2)
+            DinoLaunchPanel.Visible = false
+        else
+            FadeOutPage(previousPage)
+        end
+        PlayPageChangeSound() 
+         FadeInPage("Settings")
+    end)
+end)
+
+AnimateButton(ExitBtn, function()
+    FadeOutAndExecute(nil)
+end)
+
+AnimateButton(GetLinkBtn, function()
+    local t = Translations[SelectedLanguage] or Translations.English
+    if setclipboard then
+        setclipboard(KeyLink)
+         Title.Text = t.LinkCopied
+        task.wait(1.5)
+        Title.Text = IsLoggedIn and t.AlreadyLogged or t.KeySystem
+    else
+        Title.Text = t.CouldNotCopy
+        task.wait(1.5)
+         Title.Text = IsLoggedIn and t.AlreadyLogged or t.KeySystem
+    end
+end)
+
+-- إصلاح وإكمال نظام التحقق المقطوع من الزر
+AnimateButton(SubmitBtn, function()
+    local t = Translations[SelectedLanguage] or Translations.English
+    if KeyInput.Text == RequiredKey then
+        IsLoggedIn = true
+        KeyInput.TextEditable = false
+        if RequireKeyForEU then
+             EndTime = os.time() + ExpirationSeconds
+            if writefile then pcall(function() writefile(FileName, tostring(EndTime)) end) end
+            StartTimer(EndTime)
+        end
+        CurrentPage = "Games"
+        UpdateNavigationFocus()
+        FadeOutPage("Key")
+        PlayPageChangeSound()
+        FadeInPage("Games")
+    else
+        Title.Text = t.WrongKey
+        task.wait(1.5)
+        Title.Text = t.KeySystem
+    end
+end)
+
+task.spawn(FadeIn)
+
+-- يُعلَم هذا العلم في آخر سطر تنفيذي بالسكريبت لضمان أن كل كروت
+-- الألعاب (الحالية والمستقبلية) قد سجّلت صورها في _PendingPreloadAssets
+-- قبل أن تبدأ شاشة التحميل السوداء بتحميلها فعلياً.
+_ScriptFullyLoaded = true
